@@ -1,0 +1,191 @@
+{
+  "dashboard": {
+    "title": "KAYO Per-Tenant Metrics",
+    "tags": ["kayo", "tenants"],
+    "timezone": "browser",
+    "schemaVersion": 16,
+    "version": 0,
+    "refresh": "30s",
+    "templating": {
+      "list": [
+        {
+          "name": "tenant_id",
+          "type": "query",
+          "query": "label_values(events_processed_total, tenant_id)",
+          "refresh": 1,
+          "includeAll": false,
+          "multi": false
+        }
+      ]
+    },
+    "panels": [
+      {
+        "id": 1,
+        "title": "Events Ingested (Tenant: $tenant_id)",
+        "type": "graph",
+        "gridPos": {"x": 0, "y": 0, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "rate(events_processed_total{tenant_id=\"$tenant_id\"}[5m])",
+            "legendFormat": "Events/sec",
+            "refId": "A"
+          }
+        ],
+        "yaxes": [
+          {"format": "short", "label": "Events/sec"},
+          {"format": "short"}
+        ]
+      },
+      {
+        "id": 2,
+        "title": "Incidents Created",
+        "type": "graph",
+        "gridPos": {"x": 12, "y": 0, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "increase(incidents_created_total{tenant_id=\"$tenant_id\"}[1h])",
+            "legendFormat": "Incidents",
+            "refId": "A"
+          }
+        ]
+      },
+      {
+        "id": 3,
+        "title": "API Requests",
+        "type": "graph",
+        "gridPos": {"x": 0, "y": 8, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "rate(http_requests_total{tenant_id=\"$tenant_id\"}[5m])",
+            "legendFormat": "{{method}} {{path}}",
+            "refId": "A"
+          }
+        ]
+      },
+      {
+        "id": 4,
+        "title": "Resource Usage",
+        "type": "graph",
+        "gridPos": {"x": 12, "y": 8, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "sum(container_memory_usage_bytes{namespace=~\"kayo-tenant-.*\", tenant_id=\"$tenant_id\"})",
+            "legendFormat": "Memory",
+            "refId": "A"
+          },
+          {
+            "expr": "sum(rate(container_cpu_usage_seconds_total{namespace=~\"kayo-tenant-.*\", tenant_id=\"$tenant_id\"}[5m]))",
+            "legendFormat": "CPU",
+            "refId": "B"
+          }
+        ]
+      },
+      {
+        "id": 5,
+        "title": "Deployments",
+        "type": "stat",
+        "gridPos": {"x": 0, "y": 16, "w": 6, "h": 4},
+        "targets": [
+          {
+            "expr": "count(kube_deployment_labels{namespace=~\"kayo-tenant-.*\", label_kayo_io_tenant_id=\"$tenant_id\"})",
+            "refId": "A"
+          }
+        ]
+      },
+      {
+        "id": 6,
+        "title": "Active Incidents",
+        "type": "stat",
+        "gridPos": {"x": 6, "y": 16, "w": 6, "h": 4},
+        "targets": [
+          {
+            "expr": "count(incidents{tenant_id=\"$tenant_id\", status=\"new\"})",
+            "refId": "A"
+          }
+        ],
+        "options": {
+          "colorMode": "value",
+          "graphMode": "none",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"value": 0, "color": "green"},
+              {"value": 5, "color": "yellow"},
+              {"value": 10, "color": "red"}
+            ]
+          }
+        }
+      },
+      {
+        "id": 7,
+        "title": "Graph Nodes",
+        "type": "stat",
+        "gridPos": {"x": 12, "y": 16, "w": 6, "h": 4},
+        "targets": [
+          {
+            "expr": "neo4j_node_count{tenant_id=\"$tenant_id\"}",
+            "refId": "A"
+          }
+        ]
+      },
+      {
+        "id": 8,
+        "title": "Graph Relationships",
+        "type": "stat",
+        "gridPos": {"x": 18, "y": 16, "w": 6, "h": 4},
+        "targets": [
+          {
+            "expr": "neo4j_relationship_count{tenant_id=\"$tenant_id\"}",
+            "refId": "A"
+          }
+        ]
+      },
+      {
+        "id": 9,
+        "title": "Storage Used",
+        "type": "gauge",
+        "gridPos": {"x": 0, "y": 20, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "sum(clickhouse_table_size_bytes{tenant_id=\"$tenant_id\"})",
+            "refId": "A"
+          }
+        ],
+        "options": {
+          "showThresholdLabels": false,
+          "showThresholdMarkers": true
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "bytes",
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {"value": 0, "color": "green"},
+                {"value": 10737418240, "color": "yellow"},
+                {"value": 107374182400, "color": "red"}
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 10,
+        "title": "AI Token Usage",
+        "type": "graph",
+        "gridPos": {"x": 12, "y": 20, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "increase(ai_tokens_used_total{tenant_id=\"$tenant_id\"}[1d])",
+            "legendFormat": "Tokens/day",
+            "refId": "A"
+          }
+        ],
+        "yaxes": [
+          {"format": "short", "label": "Tokens"},
+          {"format": "short"}
+        ]
+      }
+    ]
+  }
+}

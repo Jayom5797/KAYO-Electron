@@ -1,0 +1,26 @@
+# Data from Network Shared Drive
+# MITRE ATT&CK: T1039 - Data from Network Shared Drive
+
+rule_id: "T1039_network_share_collection"
+name: "Data Collection from Network Shares"
+severity: "medium"
+mitre_technique: "T1039"
+description: "Detects bulk data collection from network shares or mounted volumes"
+
+query: |
+  MATCH (p:Process)-[:RUNS_ON]->(h:Host)
+  WHERE p.first_seen > timestamp() - $lookback_window
+    AND (
+      (p.name IN ['cp', 'rsync', 'scp', 'tar'] AND p.cmdline CONTAINS '/mnt/')
+      OR (p.name IN ['cp', 'rsync', 'scp', 'tar'] AND p.cmdline CONTAINS '/nfs/')
+      OR p.cmdline CONTAINS 'net use'
+      OR p.cmdline CONTAINS 'mount -t cifs'
+      OR p.cmdline CONTAINS 'mount -t nfs'
+    )
+  RETURN p.name as process,
+         p.cmdline as command,
+         h.hostname as host,
+         p.first_seen as timestamp
+
+threshold: 1
+risk_score: 65

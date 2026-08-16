@@ -1,0 +1,43 @@
+{
+  "name": "astra",
+  "version": "1.0.0",
+  "description": "ASTRA — Automated Security Testing & Risk Analysis desktop tool",
+  "license": "MIT",
+  "main": "dist/electron/main.js",
+  "bin": {
+    "astra": "dist/cli.js"
+  },
+  "scripts": {
+    "postinstall": "playwright install chromium",
+    "build": "tsc",
+    "build:electron": "tsc -p tsconfig.electron.json",
+    "serve": "node dist/server.js",
+    "electron": "npm run build:electron && electron .",
+    "test": "vitest --run",
+    "test:watch": "vitest",
+    "test:integration": "vitest --run --config vitest.integration.config.ts",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
+  },
+  "dependencies": {
+    "commander": "^12.0.0",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "playwright": "^1.44.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.13.0",
+    "@types/express": "^5.0.6",
+    "@types/node": "^20.0.0",
+    "electron": "^41.3.0",
+    "eslint": "^9.13.0",
+    "eslint-config-prettier": "^9.1.0",
+    "fast-check": "^3.19.0",
+    "prettier": "^3.3.0",
+    "typescript": "^5.4.0",
+    "typescript-eslint": "^8.10.0",
+    "vitest": "^1.6.0"
+  }
+}

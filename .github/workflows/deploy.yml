@@ -1,0 +1,216 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+    tags:
+      - "v*"
+
+env:
+  AWS_REGION: us-east-1
+  ECR_REGISTRY: ${{ secrets.ECR_REGISTRY }}
+
+jobs:
+  # ── Build & push all service images to ECR ─────────────────────────────────
+  build-and-push:
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - service: control-plane
+            context: ./services/control-plane
+          - service: detection-engine
+            context: ./services/detection-engine
+          - service: telemetry-ingestion
+            context: ./services/telemetry-ingestion
+          - service: graph-engine
+            context: ./services/graph-engine
+          - service: ai-explainer
+            context: ./services/ai-explainer
+          - service: deployment-orchestrator
+            context: ./services/deployment-orchestrator
+          - service: frontend
+            context: ./frontend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set image tag
+        id: tag
+        run: |
+          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            echo "tag=${{ github.ref_name }}" >> $GITHUB_OUTPUT
+          else
+            echo "tag=sha-${{ github.sha }}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push ${{ matrix.service }}
+        uses: docker/build-push-action@v5
+        with:
+          context: ${{ matrix.context }}
+          push: true
+          tags: |
+            ${{ steps.login-ecr.outputs.registry }}/kayo/${{ matrix.service }}:${{ steps.tag.outputs.tag }}
+            ${{ steps.login-ecr.outputs.registry }}/kayo/${{ matrix.service }}:latest
+          cache-from: type=gha,scope=${{ matrix.service }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.service }}
+
+  # ── Deploy to staging (every push to main) ─────────────────────────────────
+  deploy-staging:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    environment: staging
+    env:
+      IMAGE_TAG: sha-${{ github.sha }}
+      CLUSTER_NAME: kayo-staging
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Update kubeconfig
+        run: aws eks update-kubeconfig --name ${{ env.CLUSTER_NAME }} --region ${{ env.AWS_REGION }}
+
+      - name: Substitute image tags
+        run: |
+          SERVICES="control-plane detection-engine telemetry-ingestion graph-engine ai-explainer deployment-orchestrator frontend"
+          for svc in $SERVICES; do
+            find infrastructure/kubernetes/base -name "*.yaml" -exec \
+              sed -i "s|REGISTRY/kayo/${svc}:VERSION|${ECR_REGISTRY}/kayo/${svc}:${IMAGE_TAG}|g" {} \;
+          done
+
+      - name: Apply Kubernetes manifests
+        run: |
+          kubectl apply -f infrastructure/kubernetes/base/namespace.yaml
+          kubectl apply -f infrastructure/kubernetes/base/secrets.yaml
+          kubectl apply -f infrastructure/kubernetes/base/
+          kubectl rollout status deployment/control-plane   -n kayo --timeout=300s
+          kubectl rollout status deployment/detection-engine -n kayo --timeout=300s
+          kubectl rollout status deployment/frontend         -n kayo --timeout=300s
+
+      - name: Run smoke tests
+        run: |
+          ENDPOINT=$(kubectl get svc control-plane -n kayo -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
+          for i in $(seq 1 10); do
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://${ENDPOINT}/health || echo "000")
+            [ "$STATUS" = "200" ] && echo "Health check passed" && exit 0
+            echo "Attempt $i: status=$STATUS, retrying in 15s..."
+            sleep 15
+          done
+          echo "Smoke test failed" && exit 1
+
+  # ── Deploy to production (version tags only) ───────────────────────────────
+  deploy-production:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    environment: production
+    env:
+      IMAGE_TAG: ${{ github.ref_name }}
+      CLUSTER_NAME: kayo-production
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Update kubeconfig
+        run: aws eks update-kubeconfig --name ${{ env.CLUSTER_NAME }} --region ${{ env.AWS_REGION }}
+
+      - name: Substitute image tags
+        run: |
+          SERVICES="control-plane detection-engine telemetry-ingestion graph-engine ai-explainer deployment-orchestrator frontend"
+          for svc in $SERVICES; do
+            find infrastructure/kubernetes/base -name "*.yaml" -exec \
+              sed -i "s|REGISTRY/kayo/${svc}:VERSION|${ECR_REGISTRY}/kayo/${svc}:${IMAGE_TAG}|g" {} \;
+          done
+
+      - name: Apply Kubernetes manifests
+        run: |
+          kubectl apply -f infrastructure/kubernetes/base/namespace.yaml
+          kubectl apply -f infrastructure/kubernetes/base/secrets.yaml
+          kubectl apply -f infrastructure/kubernetes/base/
+          kubectl rollout status deployment/control-plane    -n kayo --timeout=300s
+          kubectl rollout status deployment/detection-engine -n kayo --timeout=300s
+          kubectl rollout status deployment/frontend          -n kayo --timeout=300s
+
+      - name: Tag release in ECR
+        run: |
+          SERVICES="control-plane detection-engine telemetry-ingestion graph-engine ai-explainer deployment-orchestrator frontend"
+          for svc in $SERVICES; do
+            MANIFEST=$(aws ecr batch-get-image \
+              --repository-name kayo/${svc} \
+              --image-ids imageTag=${IMAGE_TAG} \
+              --query 'images[0].imageManifest' --output text)
+            aws ecr put-image \
+              --repository-name kayo/${svc} \
+              --image-tag stable \
+              --image-manifest "$MANIFEST" || true
+          done
+
+      - name: Notify deployment
+        if: always()
+        run: echo "Production deployment ${{ github.ref_name }} — ${{ job.status }}"
+
+  # ── Terraform plan on PRs, apply on main ───────────────────────────────────
+  terraform:
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' || github.event_name == 'pull_request'
+    environment: ${{ github.ref == 'refs/heads/main' && 'staging' || '' }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.7.0"
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Terraform Init
+        working-directory: infrastructure/terraform/environments/production
+        run: terraform init
+
+      - name: Terraform Plan
+        working-directory: infrastructure/terraform/environments/production
+        run: terraform plan -var="db_password=${{ secrets.DB_PASSWORD }}" -out=tfplan
+        env:
+          TF_VAR_aws_region: ${{ env.AWS_REGION }}
+
+      - name: Terraform Apply
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        working-directory: infrastructure/terraform/environments/production
+        run: terraform apply -auto-approve tfplan

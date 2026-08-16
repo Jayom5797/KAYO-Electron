@@ -1,0 +1,28 @@
+# Scheduled Task Persistence
+# MITRE ATT&CK: T1053 - Scheduled Task/Job
+
+rule_id: "T1053_scheduled_task"
+name: "Persistence via Scheduled Task or Cron"
+severity: "high"
+mitre_technique: "T1053"
+description: "Detects creation of scheduled tasks or cron jobs for persistence"
+
+query: |
+  MATCH (p:Process)-[:RUNS_ON]->(h:Host)
+  WHERE p.first_seen > timestamp() - $lookback_window
+    AND (
+      p.name IN ['crontab', 'at', 'schtasks', 'systemctl']
+      OR p.cmdline CONTAINS '/etc/cron'
+      OR p.cmdline CONTAINS 'crontab -e'
+      OR p.cmdline CONTAINS 'schtasks /create'
+    )
+  OPTIONAL MATCH (p)-[:SPAWNED_BY]->(parent:Process)
+  WHERE parent.name NOT IN ['bash', 'sh', 'zsh', 'ansible', 'puppet']
+  RETURN p.name as process,
+         p.cmdline as command,
+         h.hostname as host,
+         parent.name as parent_process,
+         p.first_seen as timestamp
+
+threshold: 1
+risk_score: 75

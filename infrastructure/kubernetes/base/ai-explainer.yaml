@@ -1,0 +1,57 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ai-explainer
+  namespace: kayo
+  labels:
+    app: ai-explainer
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: ai-explainer
+  template:
+    metadata:
+      labels:
+        app: ai-explainer
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+      containers:
+        - name: ai-explainer
+          image: REGISTRY/kayo/ai-explainer:VERSION
+          ports:
+            - containerPort: 8001
+          envFrom:
+            - secretRef:
+                name: kayo-secrets
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: 1000m
+              memory: 1Gi
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8001
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ai-explainer
+  namespace: kayo
+spec:
+  selector:
+    app: ai-explainer
+  ports:
+    - port: 80
+      targetPort: 8001

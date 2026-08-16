@@ -1,0 +1,29 @@
+# Non-Application Layer Protocol
+# MITRE ATT&CK: T1095 - Non-Application Layer Protocol
+
+rule_id: "T1095_non_standard_protocol"
+name: "Raw Socket or Non-Standard Protocol Usage"
+severity: "high"
+mitre_technique: "T1095"
+description: "Detects use of raw sockets or non-standard protocols for C2 or exfiltration"
+
+query: |
+  MATCH (p:Process)-[:CONNECTED_TO]->(ip:IPAddress)
+  MATCH (p)-[:RUNS_ON]->(h:Host)
+  WHERE p.first_seen > timestamp() - $lookback_window
+    AND (
+      ip.port IN [4444, 1337, 31337, 8888, 9999, 6666]
+      OR (p.cmdline CONTAINS 'SOCK_RAW')
+      OR (p.name = 'hping3')
+      OR (p.name = 'nping')
+      OR (p.cmdline CONTAINS 'icmp')
+    )
+  RETURN p.name as process,
+         p.cmdline as command,
+         ip.address as destination_ip,
+         ip.port as destination_port,
+         h.hostname as host,
+         p.first_seen as timestamp
+
+threshold: 1
+risk_score: 85

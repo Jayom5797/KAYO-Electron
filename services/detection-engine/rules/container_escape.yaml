@@ -1,0 +1,28 @@
+# Container Escape Detection
+# MITRE ATT&CK: T1611 - Escape to Host
+
+rule_id: "T1611_container_escape"
+name: "Potential Container Escape Attempt"
+severity: "critical"
+mitre_technique: "T1611"
+description: "Detects suspicious process execution patterns indicating container escape"
+
+query: |
+  MATCH (c:Container)-[:RUNS_ON]->(h:Host)
+  MATCH (p:Process)-[:RUNS_ON]->(h)
+  WHERE p.first_seen > timestamp() - $lookback_window
+    AND (
+      p.name IN ['nsenter', 'unshare', 'capsh']
+      OR p.cmdline CONTAINS '/proc/self/exe'
+      OR p.cmdline CONTAINS 'docker.sock'
+      OR p.cmdline CONTAINS '/var/run/docker.sock'
+    )
+  RETURN c.name as container,
+         c.image as image,
+         p.name as process,
+         p.cmdline as command,
+         h.hostname as host,
+         p.first_seen as timestamp
+
+threshold: 1
+risk_score: 95

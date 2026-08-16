@@ -1,0 +1,119 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "KAYO Unified Event Schema",
+  "description": "Normalized security event schema for cross-layer telemetry",
+  "type": "object",
+  "required": ["event_id", "tenant_id", "timestamp", "source_type", "event"],
+  "properties": {
+    "event_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Unique event identifier"
+    },
+    "tenant_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Tenant identifier for multi-tenant isolation"
+    },
+    "timestamp": {
+      "type": "integer",
+      "description": "Unix timestamp in microseconds"
+    },
+    "source_type": {
+      "type": "string",
+      "enum": ["kubernetes", "application", "cloudtrail", "docker", "syslog"],
+      "description": "Telemetry source type"
+    },
+    "event": {
+      "type": "object",
+      "required": ["category", "type", "action"],
+      "properties": {
+        "category": {
+          "type": "string",
+          "enum": ["process", "network", "file", "authentication", "cloud", "container", "application"],
+          "description": "Event category"
+        },
+        "type": {
+          "type": "string",
+          "enum": ["start", "end", "access", "change", "creation", "deletion", "connection", "log"],
+          "description": "Event type"
+        },
+        "action": {
+          "type": "string",
+          "description": "Specific action performed"
+        },
+        "outcome": {
+          "type": "string",
+          "enum": ["success", "failure", "unknown"],
+          "default": "unknown"
+        }
+      }
+    },
+    "user": {
+      "type": "object",
+      "properties": {
+        "id": {"type": "string", "format": "uuid"},
+        "name": {"type": "string"}
+      }
+    },
+    "process": {
+      "type": "object",
+      "properties": {
+        "id": {"type": "string", "format": "uuid"},
+        "pid": {"type": "integer"},
+        "name": {"type": "string"},
+        "command_line": {"type": "string"},
+        "parent_id": {"type": "string", "format": "uuid"}
+      }
+    },
+    "host": {
+      "type": "object",
+      "properties": {
+        "id": {"type": "string", "format": "uuid"},
+        "hostname": {"type": "string"},
+        "ip": {"type": "string", "format": "ipv4"}
+      }
+    },
+    "container": {
+      "type": "object",
+      "properties": {
+        "id": {"type": "string"},
+        "name": {"type": "string"},
+        "image": {"type": "string"}
+      }
+    },
+    "network": {
+      "type": "object",
+      "properties": {
+        "source_ip": {"type": "string", "format": "ipv4"},
+        "dest_ip": {"type": "string", "format": "ipv4"},
+        "dest_port": {"type": "integer"},
+        "protocol": {"type": "string"}
+      }
+    },
+    "file": {
+      "type": "object",
+      "properties": {
+        "path": {"type": "string"},
+        "hash": {"type": "string"}
+      }
+    },
+    "deployment_name": {"type": "string"},
+    "namespace": {"type": "string"},
+    "risk_score": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 100,
+      "default": 0
+    },
+    "tags": {
+      "type": "array",
+      "items": {"type": "string"},
+      "default": []
+    },
+    "raw": {
+      "type": "object",
+      "description": "Original raw event data"
+    }
+  }
+}

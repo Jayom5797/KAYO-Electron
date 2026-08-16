@@ -1,0 +1,12 @@
+{
+  "name": "kayo-test-insecure-app",
+  "version": "1.0.0",
+  "description": "INTENTIONALLY INSECURE test app for KAYO security gate testing. DO NOT DEPLOY.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.21.0"
+  }
+}

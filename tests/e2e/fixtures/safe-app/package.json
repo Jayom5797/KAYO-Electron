@@ -1,0 +1,12 @@
+{
+  "name": "kayo-test-safe-app",
+  "version": "1.0.0",
+  "description": "Safe test application for KAYO E2E testing",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.21.0"
+  }
+}

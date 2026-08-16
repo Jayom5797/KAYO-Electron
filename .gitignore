@@ -1,0 +1,84 @@
+# ═══════════════════════════════════════════════════════════════════════════════
+# KAYO — Git Ignore
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# ── Python ────────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+
+# ── Node ──────────────────────────────────────────────────────────────────────
+node_modules/
+.next/
+dist/
+build/
+*.tsbuildinfo
+.turbo/
+
+# ── Environment & Secrets ─────────────────────────────────────────────────────
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*-key.json
+*.credentials
+
+# ── IDE ───────────────────────────────────────────────────────────────────────
+.idea/
+.vscode/
+*.swp
+*.swo
+*.code-workspace
+
+# ── OS ────────────────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# ── Build Artifacts ───────────────────────────────────────────────────────────
+*.log
+coverage/
+htmlcov/
+.coverage
+
+# ── Terraform ─────────────────────────────────────────────────────────────────
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+!*.tfvars.example
+
+# ── Electron / Desktop App Build ──────────────────────────────────────────────
+apps/desktop/dist/
+apps/desktop/build-tmp/
+apps/desktop/node_modules/
+apps/desktop/staged-resources/
+apps/desktop/runtime-binaries/
+
+# ── Web App Build ─────────────────────────────────────────────────────────────
+apps/web/.next/
+apps/web/node_modules/
+
+# ── Docker ────────────────────────────────────────────────────────────────────
+docker-data/
+
+# ── Experiment Data (database files, test binaries) ───────────────────────────
+experiments/runtime-feasibility/postgres-data/
+experiments/runtime-feasibility/redis/
+*.pdb
+
+# ── Misc ──────────────────────────────────────────────────────────────────────
+*.exe
+*.dll
+*.bin
+*.zip
+*.tar.gz

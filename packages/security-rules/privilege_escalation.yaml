@@ -1,0 +1,33 @@
+# Privilege Escalation Detection Rule
+# MITRE ATT&CK: T1078.003 - Valid Accounts: Local Accounts
+
+rule_id: "T1078_privilege_escalation"
+name: "Privilege Escalation via Sudo"
+severity: "high"
+mitre_technique: "T1078.003"
+description: "Detects privilege escalation attempts using sudo or su commands"
+
+# Triggers define which graph events should evaluate this rule
+triggers:
+  - relationship_type: "SPAWNED_BY"
+  - relationship_type: "RUNS_ON"
+
+# Cypher query to detect pattern in behavior graph
+query: |
+  MATCH (u:User)-[:AUTHENTICATED_TO]->(h:Host)
+  MATCH (p:Process {name: 'sudo'})-[:RUNS_ON]->(h)
+  WHERE p.first_seen > timestamp() - $lookback_window
+    AND (p.id = $target_entity_id OR p.id = $source_entity_id OR $relationship_id IS NOT NULL)
+  OPTIONAL MATCH (p)-[:SPAWNED_BY]->(parent:Process)
+  RETURN u.username as user,
+         h.hostname as host,
+         p.id as process_id,
+         p.cmdline as command,
+         p.first_seen as timestamp,
+         parent.name as parent_process
+
+# Minimum number of matches to trigger alert
+threshold: 1
+
+# Risk score (0-100)
+risk_score: 80

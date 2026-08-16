@@ -1,0 +1,28 @@
+# Account Discovery
+# MITRE ATT&CK: T1087 - Account Discovery
+
+rule_id: "T1087_account_discovery"
+name: "User and Group Enumeration"
+severity: "medium"
+mitre_technique: "T1087"
+description: "Detects enumeration of local or domain user accounts"
+
+query: |
+  MATCH (p:Process)-[:RUNS_ON]->(h:Host)
+  WHERE p.first_seen > timestamp() - $lookback_window
+    AND (
+      p.name IN ['whoami', 'id', 'w', 'who', 'last']
+      OR (p.name = 'net' AND p.cmdline CONTAINS 'user')
+      OR (p.name = 'net' AND p.cmdline CONTAINS 'group')
+      OR p.cmdline CONTAINS 'getent passwd'
+      OR p.cmdline CONTAINS 'cat /etc/passwd'
+      OR p.cmdline CONTAINS 'ldapsearch'
+    )
+  WITH h, count(p) as cmd_count, collect(p.name) as commands
+  WHERE cmd_count >= $threshold
+  RETURN h.hostname as host,
+         cmd_count,
+         commands
+
+threshold: 5
+risk_score: 50

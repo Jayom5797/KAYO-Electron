@@ -1,0 +1,62 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: graph-engine
+  namespace: kayo
+  labels:
+    app: graph-engine
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: graph-engine
+  template:
+    metadata:
+      labels:
+        app: graph-engine
+    spec:
+      serviceAccountName: kayo-worker
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+      containers:
+        - name: graph-engine
+          image: REGISTRY/kayo/graph-engine:VERSION
+          envFrom:
+            - secretRef:
+                name: kayo-secrets
+          env:
+            - name: LOG_LEVEL
+              value: INFO
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: 1000m
+              memory: 1Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: graph-engine-hpa
+  namespace: kayo
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: graph-engine
+  minReplicas: 2
+  maxReplicas: 6
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70

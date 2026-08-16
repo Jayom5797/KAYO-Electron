@@ -1,0 +1,255 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'KAYO Project Infrastructure Stack - Independent per-project deployment'
+
+Parameters:
+  ProjectId:
+    Type: String
+    Description: Unique KAYO project identifier
+  ProjectName:
+    Type: String
+    Description: Human-readable project name
+  ImageUri:
+    Type: String
+    Description: ECR image URI to deploy
+  ContainerPort:
+    Type: Number
+    Default: 8080
+    Description: Application container port
+  Cpu:
+    Type: String
+    Default: '256'
+    AllowedValues: ['256', '512', '1024', '2048']
+  Memory:
+    Type: String
+    Default: '512'
+    AllowedValues: ['512', '1024', '2048', '4096']
+  Environment:
+    Type: String
+    Default: 'demo'
+    AllowedValues: ['demo', 'production']
+
+Resources:
+  # ── VPC ──────────────────────────────────────────────────────────────────
+  ProjectVPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: '10.100.0.0/16'
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: !Sub 'kayo-${ProjectId}-vpc'
+        - Key: 'kayo:managed'
+          Value: 'true'
+        - Key: 'kayo:project-id'
+          Value: !Ref ProjectId
+
+  PublicSubnetA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref ProjectVPC
+      CidrBlock: '10.100.1.0/24'
+      AvailabilityZone: !Select [0, !GetAZs '']
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub 'kayo-${ProjectId}-public-a'
+        - Key: 'kayo:project-id'
+          Value: !Ref ProjectId
+
+  PublicSubnetB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref ProjectVPC
+      CidrBlock: '10.100.2.0/24'
+      AvailabilityZone: !Select [1, !GetAZs '']
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub 'kayo-${ProjectId}-public-b'
+        - Key: 'kayo:project-id'
+          Value: !Ref ProjectId
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: 'kayo:project-id'
+          Value: !Ref ProjectId
+
+  GatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref ProjectVPC
+      InternetGatewayId: !Ref InternetGateway
+
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref ProjectVPC
+
+  PublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: GatewayAttachment
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: '0.0.0.0/0'
+      GatewayId: !Ref InternetGateway
+
+  SubnetARouteAssoc:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnetA
+      RouteTableId: !Ref PublicRouteTable
+
+  SubnetBRouteAssoc:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnetB
+      RouteTableId: !Ref PublicRouteTable
+
+  # ── Security Group ──────────────────────────────────────────────────────
+  ProjectSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: !Sub 'KAYO project ${ProjectId} security group'
+      VpcId: !Ref ProjectVPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: !Ref ContainerPort
+          ToPort: !Ref ContainerPort
+          CidrIp: '0.0.0.0/0'
+      Tags:
+        - Key: 'kayo:project-id'
+          Value: !Ref ProjectId
+
+  # ── ECR Repository (created separately by KAYO deployer) ─────────────
+  # ECR is provisioned before the stack via AWS CLI to allow image push first.
+  # The stack uses the image URI parameter directly.
+
+  # ── IAM Roles ──────────────────────────────────────────────────────────
+  TaskExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub 'kayo-${ProjectId}-execution-role'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+      Tags:
+        - Key: 'kayo:project-id'
+          Value: !Ref ProjectId
+
+  TaskRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub 'kayo-${ProjectId}-task-role'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+      # No permissions by default - least privilege
+      Tags:
+        - Key: 'kayo:project-id'
+          Value: !Ref ProjectId
+
+  # ── CloudWatch Logs ────────────────────────────────────────────────────
+  ProjectLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/kayo/projects/${ProjectId}'
+      RetentionInDays: 14
+      Tags:
+        - Key: 'kayo:project-id'
+          Value: !Ref ProjectId
+
+  # ── ECS Cluster + Service ──────────────────────────────────────────────
+  ProjectCluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: !Sub 'kayo-${ProjectId}'
+      Tags:
+        - Key: 'kayo:managed'
+          Value: 'true'
+        - Key: 'kayo:project-id'
+          Value: !Ref ProjectId
+
+  TaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Sub 'kayo-${ProjectId}'
+      NetworkMode: awsvpc
+      RequiresCompatibilities: [FARGATE]
+      Cpu: !Ref Cpu
+      Memory: !Ref Memory
+      ExecutionRoleArn: !GetAtt TaskExecutionRole.Arn
+      TaskRoleArn: !GetAtt TaskRole.Arn
+      ContainerDefinitions:
+        - Name: app
+          Image: !Ref ImageUri
+          PortMappings:
+            - ContainerPort: !Ref ContainerPort
+              Protocol: tcp
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref ProjectLogGroup
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: app
+          Essential: true
+          HealthCheck:
+            Command: ['CMD-SHELL', !Sub 'wget -qO- http://localhost:${ContainerPort}/health || exit 1']
+            Interval: 30
+            Timeout: 5
+            Retries: 3
+      Tags:
+        - Key: 'kayo:project-id'
+          Value: !Ref ProjectId
+
+  ProjectService:
+    Type: AWS::ECS::Service
+    Properties:
+      ServiceName: !Sub 'kayo-${ProjectId}-service'
+      Cluster: !Ref ProjectCluster
+      TaskDefinition: !Ref TaskDefinition
+      DesiredCount: 1
+      LaunchType: FARGATE
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          Subnets:
+            - !Ref PublicSubnetA
+            - !Ref PublicSubnetB
+          SecurityGroups:
+            - !Ref ProjectSecurityGroup
+          AssignPublicIp: ENABLED
+      Tags:
+        - Key: 'kayo:managed'
+          Value: 'true'
+        - Key: 'kayo:project-id'
+          Value: !Ref ProjectId
+
+Outputs:
+  VpcId:
+    Value: !Ref ProjectVPC
+  ClusterArn:
+    Value: !GetAtt ProjectCluster.Arn
+  ServiceName:
+    Value: !Sub 'kayo-${ProjectId}-service'
+  ECRRepository:
+    Value: !Sub '${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/kayo/project/${ProjectId}'
+  LogGroup:
+    Value: !Ref ProjectLogGroup
+  TaskRoleArn:
+    Value: !GetAtt TaskRole.Arn
+  SecurityGroupId:
+    Value: !Ref ProjectSecurityGroup
+  StackName:
+    Value: !Ref AWS::StackName

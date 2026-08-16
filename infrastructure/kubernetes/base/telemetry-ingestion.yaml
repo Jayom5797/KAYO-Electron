@@ -1,0 +1,74 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: telemetry-ingestion
+  namespace: kayo
+  labels:
+    app: telemetry-ingestion
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: telemetry-ingestion
+  template:
+    metadata:
+      labels:
+        app: telemetry-ingestion
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8001"
+    spec:
+      serviceAccountName: kayo-worker
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+      containers:
+        - name: telemetry-ingestion
+          image: REGISTRY/kayo/telemetry-ingestion:VERSION
+          envFrom:
+            - secretRef:
+                name: kayo-secrets
+          env:
+            - name: KAFKA_BOOTSTRAP_SERVERS
+              valueFrom:
+                secretKeyRef:
+                  name: kayo-secrets
+                  key: KAFKA_BOOTSTRAP_SERVERS
+            - name: CLICKHOUSE_BATCH_SIZE
+              value: "5000"
+            - name: CLICKHOUSE_BATCH_TIMEOUT
+              value: "5"
+            - name: LOG_LEVEL
+              value: INFO
+          resources:
+            requests:
+              cpu: 200m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: telemetry-ingestion-hpa
+  namespace: kayo
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: telemetry-ingestion
+  minReplicas: 2
+  maxReplicas: 8
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70

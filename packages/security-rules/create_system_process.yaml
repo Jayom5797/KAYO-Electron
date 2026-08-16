@@ -1,0 +1,30 @@
+# Create or Modify System Process
+# MITRE ATT&CK: T1543 - Create or Modify System Process
+
+rule_id: "T1543_system_process"
+name: "System Service Creation or Modification"
+severity: "high"
+mitre_technique: "T1543"
+description: "Detects creation or modification of system services for persistence"
+
+query: |
+  MATCH (p:Process)-[:RUNS_ON]->(h:Host)
+  WHERE p.first_seen > timestamp() - $lookback_window
+    AND (
+      (p.name = 'systemctl' AND p.cmdline CONTAINS 'enable')
+      OR (p.name = 'systemctl' AND p.cmdline CONTAINS 'daemon-reload')
+      OR p.cmdline CONTAINS '/etc/systemd/system/'
+      OR p.cmdline CONTAINS '/etc/init.d/'
+      OR p.cmdline CONTAINS 'sc create'
+      OR p.cmdline CONTAINS 'New-Service'
+    )
+  OPTIONAL MATCH (p)-[:SPAWNED_BY]->(parent:Process)
+  WHERE parent.name NOT IN ['ansible', 'puppet', 'chef', 'salt']
+  RETURN p.name as process,
+         p.cmdline as command,
+         h.hostname as host,
+         parent.name as parent_process,
+         p.first_seen as timestamp
+
+threshold: 1
+risk_score: 75

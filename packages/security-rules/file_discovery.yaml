@@ -1,0 +1,29 @@
+# File and Directory Discovery
+# MITRE ATT&CK: T1083 - File and Directory Discovery
+
+rule_id: "T1083_file_discovery"
+name: "Suspicious File System Enumeration"
+severity: "medium"
+mitre_technique: "T1083"
+description: "Detects broad file system enumeration that may indicate reconnaissance"
+
+query: |
+  MATCH (p:Process)-[:RUNS_ON]->(h:Host)
+  WHERE p.first_seen > timestamp() - $lookback_window
+    AND (
+      (p.name = 'find' AND (p.cmdline CONTAINS '/ -name' OR p.cmdline CONTAINS '/ -type'))
+      OR (p.name = 'ls' AND p.cmdline CONTAINS '-laR /')
+      OR p.cmdline CONTAINS '/etc/passwd'
+      OR p.cmdline CONTAINS '/etc/shadow'
+      OR p.cmdline CONTAINS '/.ssh/'
+      OR p.cmdline CONTAINS '/root/'
+    )
+  OPTIONAL MATCH (p)-[:SPAWNED_BY]->(parent:Process)
+  RETURN p.name as process,
+         p.cmdline as command,
+         h.hostname as host,
+         parent.name as parent_process,
+         p.first_seen as timestamp
+
+threshold: 3
+risk_score: 55

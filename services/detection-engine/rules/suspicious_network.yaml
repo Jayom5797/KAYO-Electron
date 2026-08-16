@@ -1,0 +1,28 @@
+# Suspicious Network Connection Detection
+# MITRE ATT&CK: T1071.001 - Application Layer Protocol: Web Protocols
+
+rule_id: "T1071_suspicious_network"
+name: "Suspicious External Network Connection"
+severity: "medium"
+mitre_technique: "T1071.001"
+description: "Detects processes connecting to external IP addresses on unusual ports"
+
+query: |
+  MATCH (p:Process)-[c:CONNECTED_TO]->(ip:IPAddress)
+  WHERE c.timestamp > timestamp() - $lookback_window
+    AND NOT ip.address STARTS WITH '10.'
+    AND NOT ip.address STARTS WITH '172.16.'
+    AND NOT ip.address STARTS WITH '192.168.'
+    AND NOT ip.address = '127.0.0.1'
+    AND c.dest_port NOT IN [80, 443, 53]
+  OPTIONAL MATCH (p)-[:RUNS_ON]->(h:Host)
+  RETURN p.name as process,
+         p.cmdline as command,
+         ip.address as destination_ip,
+         c.dest_port as port,
+         c.protocol as protocol,
+         h.hostname as host,
+         c.timestamp as timestamp
+
+threshold: 1
+risk_score: 60

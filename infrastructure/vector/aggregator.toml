@@ -1,0 +1,146 @@
+# Vector Aggregator Configuration
+# Centralized aggregator for cluster-wide telemetry
+# Version: Vector 0.35+
+
+[sources.kubernetes_events]
+type = "kubernetes_logs"
+extra_label_selector = "kayo.io/monitored=true"
+
+[sources.vector_sidecars]
+type = "vector"
+address = "0.0.0.0:9000"
+version = "2"
+
+[transforms.normalize_k8s]
+type = "remap"
+inputs = ["kubernetes_events"]
+source = '''
+  # Generate event ID
+  .event_id = uuid_v4()
+  
+  # Extract tenant_id from namespace labels
+  .tenant_id = .kubernetes.namespace_labels."kayo.io/tenant-id" ?? "unknown"
+  
+  # Normalize timestamp
+  .timestamp = to_unix_timestamp(now(), unit: "microseconds")
+  
+  # Set source type
+  .source_type = "kubernetes"
+  
+  # Classify Kubernetes events
+  event_type = .kubernetes.event_type ?? "unknown"
+  
+  if event_type == "ADDED" {
+    .event.category = "container"
+    .event.type = "creation"
+    .event.action = "pod-created"
+    .event.outcome = "success"
+  } else if event_type == "DELETED" {
+    .event.category = "container"
+    .event.type = "deletion"
+    .event.action = "pod-deleted"
+    .event.outcome = "success"
+  } else if event_type == "MODIFIED" {
+    .event.category = "container"
+    .event.type = "change"
+    .event.action = "pod-modified"
+    .event.outcome = "success"
+  } else {
+    .event.category = "container"
+    .event.type = "log"
+    .event.action = event_type
+    .event.outcome = "unknown"
+  }
+  
+  # Extract container information
+  if exists(.kubernetes.container_name) {
+    .container.name = .kubernetes.container_name
+    .container.image = .kubernetes.container_image ?? "unknown"
+    .container.id = .kubernetes.container_id ?? "unknown"
+  }
+  
+  # Extract host information
+  if exists(.kubernetes.node_name) {
+    .host.hostname = .kubernetes.node_name
+    .host.id = uuid_v5("kayo-host", .kubernetes.node_name)
+  }
+  
+  # Extract deployment context
+  .deployment_name = .kubernetes.pod_labels.app ?? "unknown"
+  .namespace = .kubernetes.namespace_name ?? "unknown"
+  
+  # Calculate risk score
+  .risk_score = if event_type == "DELETED" { 20 } else { 0 }
+  
+  # Store raw event
+  .raw = encode_json(.)
+  
+  # Clean up
+  del(.kubernetes)
+'''
+
+[transforms.merge_streams]
+type = "remap"
+inputs = ["normalize_k8s", "vector_sidecars"]
+source = '''
+  # Ensure all required fields exist
+  if !exists(.event_id) {
+    .event_id = uuid_v4()
+  }
+  if !exists(.timestamp) {
+    .timestamp = to_unix_timestamp(now(), unit: "microseconds")
+  }
+  if !exists(.risk_score) {
+    .risk_score = 0
+  }
+  if !exists(.tags) {
+    .tags = []
+  }
+'''
+
+[transforms.enrich]
+type = "remap"
+inputs = ["merge_streams"]
+source = '''
+  # Add enrichment metadata
+  .enriched_at = to_unix_timestamp(now(), unit: "microseconds")
+  .ingestion_pipeline = "vector-aggregator"
+  
+  # Tag high-risk events
+  if .risk_score >= 70 {
+    .tags = push(.tags, "high-risk")
+  }
+  
+  # Tag by source
+  .tags = push(.tags, "source:" + .source_type)
+'''
+
+[transforms.filter_valid]
+type = "filter"
+inputs = ["enrich"]
+condition = '.tenant_id != "unknown" && exists(.event.category)'
+
+[sinks.kafka]
+type = "kafka"
+inputs = ["filter_valid"]
+bootstrap_servers = "${KAFKA_BROKERS}"
+topic = "telemetry.{{ tenant_id }}.{{ source_type }}"
+encoding.codec = "json"
+compression = "snappy"
+key_field = "tenant_id"
+
+[sinks.kafka.buffer]
+type = "disk"
+max_size = 1073741824  # 1 GB
+when_full = "drop_newest"
+
+# Metrics sink for monitoring
+[sinks.prometheus]
+type = "prometheus_exporter"
+inputs = ["filter_valid"]
+address = "0.0.0.0:9598"
+
+# Health check
+[api]
+enabled = true
+address = "0.0.0.0:8686"

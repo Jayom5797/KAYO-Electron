@@ -1,0 +1,32 @@
+# Command and Control Communication
+# MITRE ATT&CK: T1071 - Application Layer Protocol
+
+rule_id: "T1071_c2_communication"
+name: "Suspicious Outbound C2 Communication"
+severity: "critical"
+mitre_technique: "T1071"
+description: "Detects unusual outbound connections that may indicate C2 communication"
+
+query: |
+  MATCH (p:Process)-[:CONNECTED_TO]->(ip:IPAddress)
+  MATCH (p)-[:RUNS_ON]->(h:Host)
+  WHERE p.first_seen > timestamp() - $lookback_window
+    AND NOT ip.address STARTS WITH '10.'
+    AND NOT ip.address STARTS WITH '172.16.'
+    AND NOT ip.address STARTS WITH '192.168.'
+    AND NOT ip.address = '127.0.0.1'
+    AND (
+      p.name IN ['nc', 'ncat', 'netcat', 'socat', 'curl', 'wget']
+      OR p.cmdline CONTAINS 'bash -i'
+      OR p.cmdline CONTAINS '/dev/tcp/'
+      OR p.cmdline CONTAINS 'python -c'
+      OR p.cmdline CONTAINS 'perl -e'
+    )
+  RETURN p.name as process,
+         p.cmdline as command,
+         ip.address as destination_ip,
+         h.hostname as host,
+         p.first_seen as timestamp
+
+threshold: 1
+risk_score: 90

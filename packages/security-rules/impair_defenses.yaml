@@ -1,0 +1,28 @@
+# Impair Defenses
+# MITRE ATT&CK: T1562 - Impair Defenses
+
+rule_id: "T1562_impair_defenses"
+name: "Security Tool Tampering"
+severity: "high"
+mitre_technique: "T1562"
+description: "Detects attempts to disable or tamper with security tools and monitoring"
+
+query: |
+  MATCH (p:Process)-[:RUNS_ON]->(h:Host)
+  WHERE p.first_seen > timestamp() - $lookback_window
+    AND (
+      p.cmdline CONTAINS 'systemctl stop'
+      OR p.cmdline CONTAINS 'service stop'
+      OR p.cmdline CONTAINS 'ufw disable'
+      OR p.cmdline CONTAINS 'iptables -F'
+      OR p.cmdline CONTAINS 'setenforce 0'
+      OR p.cmdline CONTAINS 'Set-MpPreference -DisableRealtimeMonitoring'
+      OR p.cmdline CONTAINS 'auditctl -e 0'
+    )
+  RETURN p.name as process,
+         p.cmdline as command,
+         h.hostname as host,
+         p.first_seen as timestamp
+
+threshold: 1
+risk_score: 85

@@ -1,0 +1,32 @@
+# Data Collection from Local System
+# MITRE ATT&CK: T1005 - Data from Local System
+
+rule_id: "T1005_data_collection"
+name: "Sensitive Data Collection"
+severity: "high"
+mitre_technique: "T1005"
+description: "Detects collection of sensitive files or data from the local system"
+
+query: |
+  MATCH (p:Process)-[:RUNS_ON]->(h:Host)
+  WHERE p.first_seen > timestamp() - $lookback_window
+    AND (
+      p.cmdline CONTAINS '.pem'
+      OR p.cmdline CONTAINS '.key'
+      OR p.cmdline CONTAINS '.p12'
+      OR p.cmdline CONTAINS 'id_rsa'
+      OR p.cmdline CONTAINS 'credentials'
+      OR p.cmdline CONTAINS '.aws/credentials'
+      OR p.cmdline CONTAINS 'kubeconfig'
+      OR p.cmdline CONTAINS '.kube/config'
+      OR p.cmdline CONTAINS 'token'
+    )
+  OPTIONAL MATCH (p)-[:SPAWNED_BY]->(parent:Process)
+  RETURN p.name as process,
+         p.cmdline as command,
+         h.hostname as host,
+         parent.name as parent_process,
+         p.first_seen as timestamp
+
+threshold: 1
+risk_score: 80

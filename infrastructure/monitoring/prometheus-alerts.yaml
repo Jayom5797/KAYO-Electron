@@ -1,0 +1,162 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-alerts
+  namespace: monitoring
+data:
+  alerts.yaml: |
+    groups:
+    - name: kayo_critical_alerts
+      interval: 30s
+      rules:
+      # Detection Engine Alerts
+      - alert: DetectionLatencyHigh
+        expr: histogram_quantile(0.95, rate(detection_latency_seconds_bucket[5m])) > 10
+        for: 5m
+        labels:
+          severity: critical
+          component: detection-engine
+        annotations:
+          summary: "Detection latency exceeds 10s at p95"
+          description: "Detection latency is {{ $value }}s (threshold: 10s)"
+          
+      - alert: DetectionEngineDown
+        expr: up{job="detection-engine"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          component: detection-engine
+        annotations:
+          summary: "Detection engine is down"
+          description: "Detection engine has been down for 2 minutes"
+
+      
+      # Kafka Consumer Lag Alerts
+      - alert: KafkaConsumerLagHigh
+        expr: kafka_consumer_lag > 10000
+        for: 5m
+        labels:
+          severity: warning
+          component: kafka
+        annotations:
+          summary: "Kafka consumer lag exceeds 10K messages"
+          description: "Consumer {{ $labels.consumer_group }} lag: {{ $value }}"
+          
+      - alert: KafkaConsumerLagCritical
+        expr: kafka_consumer_lag > 50000
+        for: 5m
+        labels:
+          severity: critical
+          component: kafka
+        annotations:
+          summary: "Kafka consumer lag exceeds 50K messages"
+          description: "Consumer {{ $labels.consumer_group }} lag: {{ $value }}"
+      
+      # Event Processing Alerts
+      - alert: EventProcessingErrorRateHigh
+        expr: rate(event_processing_errors_total[5m]) / rate(events_processed_total[5m]) > 0.01
+        for: 5m
+        labels:
+          severity: warning
+          component: telemetry-ingestion
+        annotations:
+          summary: "Event processing error rate exceeds 1%"
+          description: "Error rate: {{ $value | humanizePercentage }}"
+
+          
+      # API Performance Alerts
+      - alert: APIResponseTimeHigh
+        expr: histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[5m])) > 0.2
+        for: 5m
+        labels:
+          severity: warning
+          component: control-plane
+        annotations:
+          summary: "API response time exceeds 200ms at p95"
+          description: "Response time: {{ $value }}s for {{ $labels.endpoint }}"
+          
+      - alert: APIErrorRateHigh
+        expr: rate(http_requests_total{status=~"5.."}[5m]) / rate(http_requests_total[5m]) > 0.05
+        for: 5m
+        labels:
+          severity: critical
+          component: control-plane
+        annotations:
+          summary: "API error rate exceeds 5%"
+          description: "Error rate: {{ $value | humanizePercentage }}"
+      
+      # Build System Alerts
+      - alert: BuildFailureRateHigh
+        expr: rate(build_failures_total[30m]) / rate(builds_total[30m]) > 0.1
+        for: 15m
+        labels:
+          severity: warning
+          component: deployment-orchestrator
+        annotations:
+          summary: "Build failure rate exceeds 10%"
+          description: "Failure rate: {{ $value | humanizePercentage }}"
+
+      
+      # Database Alerts
+      - alert: DatabaseConnectionPoolExhausted
+        expr: database_connection_pool_active / database_connection_pool_max > 0.9
+        for: 5m
+        labels:
+          severity: critical
+          component: database
+        annotations:
+          summary: "Database connection pool near exhaustion"
+          description: "Pool usage: {{ $value | humanizePercentage }}"
+          
+      - alert: DatabaseQueryLatencyHigh
+        expr: histogram_quantile(0.95, rate(database_query_duration_seconds_bucket[5m])) > 1
+        for: 5m
+        labels:
+          severity: warning
+          component: database
+        annotations:
+          summary: "Database query latency exceeds 1s at p95"
+          description: "Query latency: {{ $value }}s"
+      
+      # Resource Alerts
+      - alert: DiskUsageHigh
+        expr: (node_filesystem_size_bytes - node_filesystem_free_bytes) / node_filesystem_size_bytes > 0.8
+        for: 10m
+        labels:
+          severity: warning
+          component: infrastructure
+        annotations:
+          summary: "Disk usage exceeds 80%"
+          description: "Disk {{ $labels.device }} usage: {{ $value | humanizePercentage }}"
+
+          
+      - alert: MemoryUsageHigh
+        expr: (node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes) / node_memory_MemTotal_bytes > 0.9
+        for: 10m
+        labels:
+          severity: critical
+          component: infrastructure
+        annotations:
+          summary: "Memory usage exceeds 90%"
+          description: "Memory usage: {{ $value | humanizePercentage }}"
+          
+      - alert: CPUUsageHigh
+        expr: 100 - (avg by (instance) (irate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 80
+        for: 10m
+        labels:
+          severity: warning
+          component: infrastructure
+        annotations:
+          summary: "CPU usage exceeds 80%"
+          description: "CPU usage: {{ $value }}%"
+      
+      # Service Health Alerts
+      - alert: ServiceDown
+        expr: up{job=~"control-plane|graph-engine|detection-engine|deployment-orchestrator|ai-explainer"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          component: "{{ $labels.job }}"
+        annotations:
+          summary: "Service {{ $labels.job }} is down"
+          description: "Service has been down for 2 minutes"

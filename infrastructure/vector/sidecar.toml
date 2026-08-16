@@ -1,0 +1,100 @@
+# Vector Sidecar Configuration
+# Deployed alongside user applications to collect logs and metrics
+# Version: Vector 0.35+
+
+[sources.app_stdout]
+type = "file"
+include = ["/var/log/app/*.log", "/var/log/app/stdout"]
+read_from = "beginning"
+
+[sources.app_stderr]
+type = "file"
+include = ["/var/log/app/stderr"]
+read_from = "beginning"
+
+[sources.kubernetes_metadata]
+type = "kubernetes_logs"
+self_node_name = "${HOSTNAME}"
+
+[transforms.parse_json]
+type = "remap"
+inputs = ["app_stdout", "app_stderr"]
+source = '''
+  # Try to parse as JSON, fallback to plain text
+  parsed = parse_json(.message) ?? {"message": .message}
+  . = merge(., parsed)
+'''
+
+[transforms.normalize]
+type = "remap"
+inputs = ["parse_json", "kubernetes_metadata"]
+source = '''
+  # Generate event ID
+  .event_id = uuid_v4()
+  
+  # Extract tenant_id from Kubernetes labels
+  .tenant_id = .kubernetes.pod_labels."kayo.io/tenant-id" ?? "unknown"
+  
+  # Normalize timestamp to microseconds
+  .timestamp = to_unix_timestamp(now(), unit: "microseconds")
+  
+  # Set source type
+  .source_type = "application"
+  
+  # Extract deployment context
+  .deployment_name = .kubernetes.pod_labels.app ?? "unknown"
+  .namespace = .kubernetes.namespace_name ?? "unknown"
+  
+  # Classify event
+  if exists(.level) {
+    .event.category = "application"
+    .event.type = "log"
+    .event.action = .level
+    .event.outcome = if .level == "error" { "failure" } else { "success" }
+  } else {
+    .event.category = "application"
+    .event.type = "log"
+    .event.action = "info"
+    .event.outcome = "unknown"
+  }
+  
+  # Calculate risk score based on log level
+  .risk_score = if .level == "error" { 50 } else if .level == "warn" { 30 } else { 0 }
+  
+  # Extract process information if available
+  if exists(.pid) {
+    .process.pid = .pid
+    .process.name = .process_name ?? "unknown"
+  }
+  
+  # Store raw event
+  .raw = encode_json(.)
+  
+  # Clean up temporary fields
+  del(.kubernetes)
+  del(.file)
+  del(.source_type_internal)
+'''
+
+[transforms.filter_tenant]
+type = "filter"
+inputs = ["normalize"]
+condition = '.tenant_id != "unknown"'
+
+[sinks.kafka]
+type = "kafka"
+inputs = ["filter_tenant"]
+bootstrap_servers = "${KAFKA_BROKERS}"
+topic = "telemetry.{{ tenant_id }}.application"
+encoding.codec = "json"
+compression = "snappy"
+
+[sinks.kafka.buffer]
+type = "disk"
+max_size = 268435456  # 256 MB
+when_full = "block"
+
+# Health check endpoint
+[api]
+enabled = true
+address = "0.0.0.0:8686"

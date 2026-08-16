@@ -1,0 +1,27 @@
+# Lateral Movement Detection
+# MITRE ATT&CK: T1021 - Remote Services
+
+rule_id: "T1021_lateral_movement"
+name: "Potential Lateral Movement via SSH"
+severity: "high"
+mitre_technique: "T1021.004"
+description: "Detects SSH connections between internal hosts indicating lateral movement"
+
+query: |
+  MATCH (u:User)-[:AUTHENTICATED_TO]->(h1:Host)
+  MATCH (p:Process {name: 'ssh'})-[:RUNS_ON]->(h1)
+  MATCH (p)-[:CONNECTED_TO]->(ip:IPAddress)
+  MATCH (h2:Host {ip_address: ip.address})
+  WHERE p.first_seen > timestamp() - $lookback_window
+    AND h1.id <> h2.id
+    AND ip.address STARTS WITH '10.'
+       OR ip.address STARTS WITH '172.16.'
+       OR ip.address STARTS WITH '192.168.'
+  RETURN u.username as user,
+         h1.hostname as source_host,
+         h2.hostname as target_host,
+         ip.address as target_ip,
+         p.first_seen as timestamp
+
+threshold: 1
+risk_score: 85

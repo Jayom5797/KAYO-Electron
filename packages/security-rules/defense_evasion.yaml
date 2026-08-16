@@ -1,0 +1,29 @@
+# Defense Evasion - Indicator Removal
+# MITRE ATT&CK: T1070 - Indicator Removal on Host
+
+rule_id: "T1070_defense_evasion"
+name: "Log Tampering or Indicator Removal"
+severity: "high"
+mitre_technique: "T1070"
+description: "Detects attempts to clear logs or remove forensic indicators"
+
+query: |
+  MATCH (p:Process)-[:RUNS_ON]->(h:Host)
+  WHERE p.first_seen > timestamp() - $lookback_window
+    AND (
+      p.cmdline CONTAINS 'history -c'
+      OR p.cmdline CONTAINS 'rm -rf /var/log'
+      OR p.cmdline CONTAINS '> /var/log'
+      OR p.cmdline CONTAINS 'shred'
+      OR p.cmdline CONTAINS 'wevtutil cl'
+      OR p.cmdline CONTAINS 'Clear-EventLog'
+      OR p.cmdline CONTAINS '/dev/null 2>&1'
+      OR p.cmdline CONTAINS 'unset HISTFILE'
+    )
+  RETURN p.name as process,
+         p.cmdline as command,
+         h.hostname as host,
+         p.first_seen as timestamp
+
+threshold: 1
+risk_score: 80
