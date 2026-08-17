@@ -1,11 +1,11 @@
 FROM node:20-alpine AS builder
 WORKDIR /app
-COPY package*.json ./
-RUN npm ci
+COPY package.json package-lock.json* ./
+RUN npm install --legacy-peer-deps
 COPY . .
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV NEXT_PUBLIC_API_URL=""
-RUN npm run build || (echo "Build failed, checking for errors..." && cat .next/trace && exit 1)
+RUN npm run build
 
 FROM node:20-alpine AS runner
 WORKDIR /app
