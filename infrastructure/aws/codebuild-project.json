@@ -1,0 +1,31 @@
+{
+  "name": "kayo-build-images",
+  "description": "Builds KAYO Docker images and pushes to ECR",
+  "source": {
+    "type": "GITHUB",
+    "location": "https://github.com/Jayom5797/KAYO-Electron.git",
+    "buildspec": "buildspec.yml",
+    "reportBuildStatus": true
+  },
+  "artifacts": {
+    "type": "NO_ARTIFACTS"
+  },
+  "environment": {
+    "type": "LINUX_CONTAINER",
+    "image": "aws/codebuild/standard:7.0",
+    "computeType": "BUILD_GENERAL1_MEDIUM",
+    "privilegedMode": true,
+    "environmentVariables": [
+      {
+        "name": "AWS_ACCOUNT_ID",
+        "value": "700640308663"
+      },
+      {
+        "name": "AWS_DEFAULT_REGION",
+        "value": "us-east-1"
+      }
+    ]
+  },
+  "serviceRole": "arn:aws:iam::700640308663:role/kayo-codebuild-role",
+  "timeoutInMinutes": 30
+}

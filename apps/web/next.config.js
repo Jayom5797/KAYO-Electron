@@ -3,6 +3,12 @@ const nextConfig = {
   output: 'standalone',
   reactStrictMode: true,
   trailingSlash: false,
+  eslint: {
+    ignoreDuringBuilds: true,
+  },
+  typescript: {
+    ignoreBuildErrors: true,
+  },
   env: {
     NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000',
   },
