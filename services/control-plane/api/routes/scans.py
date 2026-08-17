@@ -267,6 +267,23 @@ async def get_scan(
     return scan
 
 
+# ── DELETE /api/scans/{scan_id} ────────────────────────────────────────────────
+
+@router.delete("/{scan_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_scan(
+    scan_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    tenant_id: uuid.UUID = Depends(get_current_tenant_id),
+):
+    """Delete a scan and its findings."""
+    scan = db.query(Scan).filter(Scan.scan_id == scan_id, Scan.tenant_id == tenant_id).first()
+    if not scan:
+        raise HTTPException(status_code=404, detail="Scan not found")
+    db.query(Finding).filter(Finding.scan_id == scan_id).delete()
+    db.delete(scan)
+    db.commit()
+
+
 # ── GET /api/scans/{scan_id}/findings ──────────────────────────────────────────
 
 @router.get("/{scan_id}/findings", response_model=List[FindingResponse])

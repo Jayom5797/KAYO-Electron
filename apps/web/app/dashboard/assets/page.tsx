@@ -6,9 +6,14 @@ import { formatRelativeTime } from '@/lib/utils'
 export default function AssetsPage() {
   const { data: assets, isLoading } = useQuery({
     queryKey: ['assets'],
-    queryFn: () => fetch('/api/scans/assets', {
-      headers: { 'Authorization': `Bearer ${localStorage.getItem('access_token')}` }
-    }).then(r => r.ok ? r.json() : []),
+    queryFn: async () => {
+      const token = localStorage.getItem('access_token')
+      const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+      const res = await fetch(`${baseUrl}/api/scans/assets`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      })
+      return res.ok ? res.json() : []
+    },
   })
 
   return (

@@ -29,7 +29,8 @@ export default function ProjectsPage() {
     queryKey: ['projects'],
     queryFn: async () => {
       const token = localStorage.getItem('access_token')
-      const resp = await fetch('/api/projects/', { headers: { Authorization: `Bearer ${token}` } })
+      const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+      const resp = await fetch(`${baseUrl}/api/projects/`, { headers: { Authorization: `Bearer ${token}` } })
       return resp.ok ? resp.json() : []
     },
     refetchInterval: 3000,
@@ -38,7 +39,8 @@ export default function ProjectsPage() {
   const createProject = useMutation({
     mutationFn: async () => {
       const token = localStorage.getItem('access_token')
-      const resp = await fetch('/api/projects/', {
+      const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+      const resp = await fetch(`${baseUrl}/api/projects/`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ name, source_url: sourceUrl, source_type: sourceType }),
@@ -56,7 +58,8 @@ export default function ProjectsPage() {
   const deployProject = useMutation({
     mutationFn: async (projectId: string) => {
       const token = localStorage.getItem('access_token')
-      const resp = await fetch(`/api/projects/${projectId}/deploy`, {
+      const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+      const resp = await fetch(`${baseUrl}/api/projects/${projectId}/deploy`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({}),
@@ -69,7 +72,8 @@ export default function ProjectsPage() {
   const deleteProject = useMutation({
     mutationFn: async (projectId: string) => {
       const token = localStorage.getItem('access_token')
-      await fetch(`/api/projects/${projectId}`, {
+      const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+      await fetch(`${baseUrl}/api/projects/${projectId}`, {
         method: 'DELETE',
         headers: { Authorization: `Bearer ${token}` },
       })
