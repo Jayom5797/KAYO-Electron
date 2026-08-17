@@ -1,0 +1,28 @@
+version: 0.2
+
+env:
+  variables:
+    AWS_ACCOUNT_ID: "700640308663"
+    AWS_DEFAULT_REGION: "us-east-1"
+    ECR_REGISTRY: "700640308663.dkr.ecr.us-east-1.amazonaws.com"
+
+phases:
+  pre_build:
+    commands:
+      - echo Logging in to Amazon ECR...
+      - aws ecr get-login-password --region $AWS_DEFAULT_REGION | docker login --username AWS --password-stdin $ECR_REGISTRY
+  build:
+    commands:
+      - echo Building Control Plane...
+      - docker build -t $ECR_REGISTRY/kayo-control-plane:latest ./services/control-plane
+      - echo Building Assessment Engine...
+      - docker build -t $ECR_REGISTRY/kayo-assessment-engine:latest ./services/assessment-engine
+      - echo Building Frontend...
+      - docker build -t $ECR_REGISTRY/kayo-frontend:latest ./apps/web
+  post_build:
+    commands:
+      - echo Pushing images to ECR...
+      - docker push $ECR_REGISTRY/kayo-control-plane:latest
+      - docker push $ECR_REGISTRY/kayo-assessment-engine:latest
+      - docker push $ECR_REGISTRY/kayo-frontend:latest
+      - echo Build complete!
