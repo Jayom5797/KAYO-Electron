@@ -324,6 +324,20 @@ Resources:
       UnhealthyThresholdCount: 10
 
   # ALB Routing Rules
+  # Priority 5: /api/monitor/* → frontend (Next.js handles these server-side)
+  MonitorAPIListenerRule:
+    Type: AWS::ElasticLoadBalancingV2::ListenerRule
+    Properties:
+      ListenerArn: !Ref ALBListener
+      Priority: 5
+      Conditions:
+        - Field: path-pattern
+          Values: ['/api/monitor/*']
+      Actions:
+        - Type: forward
+          TargetGroupArn: !Ref FrontendTargetGroup
+
+  # Priority 10: /api/* and /health → control plane (FastAPI)
   APIListenerRule:
     Type: AWS::ElasticLoadBalancingV2::ListenerRule
     Properties:
@@ -423,7 +437,7 @@ Resources:
   # ── ECS Services ─────────────────────────────────────────────────────────────
   ControlPlaneService:
     Type: AWS::ECS::Service
-    DependsOn: APIListenerRule
+    DependsOn: [APIListenerRule, MonitorAPIListenerRule]
     Properties:
       ServiceName: kayo-api
       Cluster: !Ref ECSCluster
