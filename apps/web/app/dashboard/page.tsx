@@ -3,19 +3,46 @@
 import { useQuery } from '@tanstack/react-query'
 import { useState, useRef } from 'react'
 import { apiClient } from '@/lib/api-client'
-import { formatRelativeTime, getSeverityColor, getStatusColor } from '@/lib/utils'
+import { formatRelativeTime } from '@/lib/utils'
 import { analyzeZip, type AnalysisResult } from '@/lib/project-analyzer'
 import Link from 'next/link'
+import {
+  IconShield,
+  IconShieldAlert,
+  IconAlert,
+  IconSkull,
+  IconRocket,
+  IconTarget,
+  IconUpload,
+  IconFile,
+  IconLock,
+  IconActivity,
+  IconLayers,
+  IconServer,
+} from '@/components/ui/icons'
 
-function StatCard({ label, value, sub, icon, color }: { label: string; value: string | number; sub?: string; icon: string; color: string }) {
+function StatCard({ label, value, sub, Icon, accentColor }: {
+  label: string
+  value: string | number
+  sub?: string
+  Icon: React.ComponentType<{ className?: string; size?: number }>
+  accentColor: string
+}) {
   return (
-    <div className="glass-card p-5 card-hover animate-fade-in">
+    <div
+      className="glass-card p-5 card-hover stat-card animate-fade-in"
+      style={{ '--stat-accent': accentColor } as React.CSSProperties}
+    >
       <div className="flex items-center justify-between mb-3">
-        <span className="text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>{label}</span>
-        <span className="text-lg">{icon}</span>
+        <span className="text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>
+          {label}
+        </span>
+        <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: `${accentColor}15` }}>
+          <Icon className="opacity-90" size={16} />
+        </div>
       </div>
-      <p className="text-3xl font-bold" style={{ color }}>{value}</p>
-      {sub && <p className="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>{sub}</p>}
+      <p className="text-3xl font-bold font-heading" style={{ color: accentColor }}>{value}</p>
+      {sub && <p className="text-xs mt-1.5" style={{ color: 'var(--text-muted)' }}>{sub}</p>}
     </div>
   )
 }
@@ -23,8 +50,11 @@ function StatCard({ label, value, sub, icon, color }: { label: string; value: st
 function SkeletonCard() {
   return (
     <div className="glass-card p-5">
-      <div className="skeleton h-3 w-20 mb-3" />
-      <div className="skeleton h-8 w-12" />
+      <div className="flex items-center justify-between mb-3">
+        <div className="skeleton h-3 w-20" />
+        <div className="skeleton h-8 w-8 rounded-lg" />
+      </div>
+      <div className="skeleton h-8 w-16 mt-2" />
     </div>
   )
 }
@@ -74,8 +104,15 @@ export default function DashboardPage() {
     <div className="space-y-8">
       {/* Page header */}
       <div className="animate-fade-in">
-        <h1 className="text-2xl font-heading font-bold text-white">Security Overview</h1>
-        <p className="mt-1 text-sm" style={{ color: 'var(--text-muted)' }}>Real-time threat detection and behavior analysis</p>
+        <div className="flex items-center gap-3 mb-1">
+          <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ background: 'rgba(124, 92, 252, 0.1)', border: '1px solid rgba(124, 92, 252, 0.2)' }}>
+            <IconShield className="text-[#7c5cfc]" size={20} />
+          </div>
+          <div>
+            <h1 className="text-2xl font-heading font-bold text-white">Security Overview</h1>
+            <p className="text-sm" style={{ color: 'var(--text-muted)' }}>Real-time threat detection and behavior analysis</p>
+          </div>
+        </div>
       </div>
 
       {/* Stat cards */}
@@ -84,10 +121,10 @@ export default function DashboardPage() {
           [1,2,3,4].map(i => <SkeletonCard key={i} />)
         ) : (
           <>
-            <StatCard label="Total Incidents" value={incidents?.length ?? 0} sub="all time" icon="⚠" color="var(--text)" />
-            <StatCard label="Open" value={openCount} sub="need attention" icon="🔴" color={openCount > 0 ? '#ff6b6b' : 'var(--text)'} />
-            <StatCard label="Critical" value={criticalCount} sub="high priority" icon="💀" color={criticalCount > 0 ? '#ff4444' : 'var(--text)'} />
-            <StatCard label="Active Deploys" value={runningDeps} sub="running now" icon="🚀" color="#00ff88" />
+            <StatCard label="Total Incidents" value={incidents?.length ?? 0} sub="all time" Icon={IconAlert} accentColor="#a0a0b0" />
+            <StatCard label="Open" value={openCount} sub="need attention" Icon={IconTarget} accentColor={openCount > 0 ? '#a78bfa' : '#a0a0b0'} />
+            <StatCard label="Critical" value={criticalCount} sub="high priority" Icon={IconSkull} accentColor={criticalCount > 0 ? '#ff4444' : '#a0a0b0'} />
+            <StatCard label="Active Deploys" value={runningDeps} sub="running now" Icon={IconRocket} accentColor="#64b4ff" />
           </>
         )}
       </div>
@@ -95,10 +132,13 @@ export default function DashboardPage() {
       {/* Main grid */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Incidents */}
-        <div className="glass-card overflow-hidden animate-fade-in">
+        <div className="glass-card overflow-hidden animate-fade-in cyber-border">
           <div className="flex items-center justify-between px-6 py-4" style={{ borderBottom: '1px solid var(--border)' }}>
-            <h2 className="text-sm font-semibold text-white">Recent Incidents</h2>
-            <Link href="/dashboard/incidents" className="text-xs transition-colors" style={{ color: 'var(--text-muted)' }}>
+            <div className="flex items-center gap-2">
+              <IconShieldAlert className="text-[#a78bfa]" size={16} />
+              <h2 className="text-sm font-semibold text-white">Recent Incidents</h2>
+            </div>
+            <Link href="/dashboard/incidents" className="text-xs transition-colors hover:text-white" style={{ color: 'var(--text-muted)' }}>
               View all →
             </Link>
           </div>
@@ -113,7 +153,7 @@ export default function DashboardPage() {
                   <Link
                     key={incident.incident_id}
                     href={`/dashboard/incidents/${incident.incident_id}`}
-                    className="flex items-center gap-4 px-6 py-4 transition-colors duration-150 animate-fade-in"
+                    className="flex items-center gap-4 px-6 py-4 transition-colors duration-150 animate-fade-in group"
                     style={{ borderBottom: '1px solid rgba(255,255,255,0.03)' }}
                     onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(255,255,255,0.02)')}
                     onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
@@ -140,18 +180,22 @@ export default function DashboardPage() {
               </div>
             ) : (
               <div className="flex flex-col items-center justify-center py-16" style={{ color: 'var(--text-muted)' }}>
-                <span className="text-3xl mb-3 opacity-30">🛡️</span>
+                <IconShield className="mb-3 opacity-20" size={40} />
                 <p className="text-sm">No incidents detected</p>
+                <p className="text-xs mt-1 opacity-60">Your systems are secure</p>
               </div>
             )}
           </div>
         </div>
 
         {/* Deployments */}
-        <div className="glass-card overflow-hidden animate-fade-in">
+        <div className="glass-card overflow-hidden animate-fade-in cyber-border">
           <div className="flex items-center justify-between px-6 py-4" style={{ borderBottom: '1px solid var(--border)' }}>
-            <h2 className="text-sm font-semibold text-white">Active Deployments</h2>
-            <Link href="/dashboard/deployments" className="text-xs transition-colors" style={{ color: 'var(--text-muted)' }}>
+            <div className="flex items-center gap-2">
+              <IconRocket className="text-[#64b4ff]" size={16} />
+              <h2 className="text-sm font-semibold text-white">Active Deployments</h2>
+            </div>
+            <Link href="/dashboard/deployments" className="text-xs transition-colors hover:text-white" style={{ color: 'var(--text-muted)' }}>
               View all →
             </Link>
           </div>
@@ -190,8 +234,9 @@ export default function DashboardPage() {
               </div>
             ) : (
               <div className="flex flex-col items-center justify-center py-16" style={{ color: 'var(--text-muted)' }}>
-                <span className="text-3xl mb-3 opacity-30">🚀</span>
+                <IconRocket className="mb-3 opacity-20" size={40} />
                 <p className="text-sm">No active deployments</p>
+                <p className="text-xs mt-1 opacity-60">Deploy your first app to get started</p>
               </div>
             )}
           </div>
@@ -199,34 +244,44 @@ export default function DashboardPage() {
       </div>
 
       {/* Project Analyzer */}
-      <div className="glass-card overflow-hidden animate-fade-in">
+      <div className="glass-card overflow-hidden animate-fade-in cyber-border">
         <div className="flex items-center justify-between px-6 py-4" style={{ borderBottom: '1px solid var(--border)' }}>
-          <div>
-            <h2 className="text-sm font-semibold text-white">Project Analyzer</h2>
-            <p className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>Upload your project ZIP to analyze code quality, security, endpoints, and services</p>
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: 'rgba(124, 92, 252, 0.1)' }}>
+              <IconActivity className="text-[#7c5cfc]" size={16} />
+            </div>
+            <div>
+              <h2 className="text-sm font-semibold text-white">Project Analyzer</h2>
+              <p className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>Upload your project ZIP to analyze code quality, security, endpoints, and services</p>
+            </div>
           </div>
           <div className="flex items-center gap-3">
             {analysis && (
-              <button onClick={() => setShowAnalysis(!showAnalysis)} className="btn-ghost text-xs">
+              <button onClick={() => setShowAnalysis(!showAnalysis)} className="btn-ghost text-xs px-3 py-1.5">
                 {showAnalysis ? 'Hide Report' : 'Show Report'}
               </button>
             )}
             <input ref={fileInputRef} type="file" accept=".zip" onChange={handleZipUpload} className="hidden" id="zip-upload" />
-            <label htmlFor="zip-upload" className={`cursor-pointer text-sm font-medium rounded-lg transition-colors px-4 py-2 ${analyzing ? 'opacity-50 cursor-not-allowed' : ''}`}
-              style={{ background: 'linear-gradient(135deg, var(--primary), #cc2222)', color: 'white', boxShadow: '0 4px 12px var(--primary-glow)' }}>
-              {analyzing ? 'Analyzing...' : analysis ? 'Re-analyze ZIP' : 'Upload ZIP'}
+            <label htmlFor="zip-upload" className={`cursor-pointer inline-flex items-center gap-2 text-sm font-medium rounded-lg transition-colors px-4 py-2 ${analyzing ? 'opacity-50 cursor-not-allowed' : ''}`}
+              style={{ background: 'linear-gradient(135deg, var(--primary), #5b3fd4)', color: 'white', boxShadow: '0 4px 12px var(--primary-glow)' }}>
+              <IconUpload size={14} />
+              {analyzing ? 'Analyzing...' : analysis ? 'Re-analyze' : 'Upload ZIP'}
             </label>
           </div>
         </div>
 
         {analyzeError && (
-          <div className="px-6 py-3 text-sm" style={{ background: 'rgba(255,68,68,0.1)', borderBottom: '1px solid rgba(255,68,68,0.2)', color: '#ff6b6b' }}>{analyzeError}</div>
+          <div className="px-6 py-3 text-sm flex items-center gap-2" style={{ background: 'rgba(255,68,68,0.1)', borderBottom: '1px solid rgba(255,68,68,0.2)', color: '#ff6b6b' }}>
+            <IconAlert size={14} />
+            {analyzeError}
+          </div>
         )}
 
         {analyzing && (
           <div className="px-6 py-12 text-center">
-            <div className="w-8 h-8 border-2 rounded-full animate-spin mx-auto mb-3" style={{ borderColor: '#ff4444', borderTopColor: 'transparent' }} />
+            <div className="w-10 h-10 border-2 rounded-full animate-spin mx-auto mb-3" style={{ borderColor: '#7c5cfc', borderTopColor: 'transparent' }} />
             <p className="text-sm" style={{ color: 'var(--text-muted)' }}>Analyzing project structure...</p>
+            <p className="text-xs mt-1 opacity-50">Scanning files, endpoints, and dependencies</p>
           </div>
         )}
 
@@ -235,7 +290,10 @@ export default function DashboardPage() {
             {/* Frameworks + Stats */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div>
-                <p className="text-xs font-semibold uppercase mb-3" style={{ color: 'var(--text-muted)' }}>Frameworks & Stack</p>
+                <p className="text-xs font-semibold uppercase mb-3 flex items-center gap-2" style={{ color: 'var(--text-muted)' }}>
+                  <IconLayers className="opacity-60" size={12} />
+                  Frameworks & Stack
+                </p>
                 <div className="flex flex-wrap gap-2">
                   {analysis.frameworks.map((f, i) => (
                     <span key={i} className="px-3 py-1 rounded-full text-xs font-medium" style={{
@@ -250,7 +308,10 @@ export default function DashboardPage() {
                 </div>
               </div>
               <div>
-                <p className="text-xs font-semibold uppercase mb-3" style={{ color: 'var(--text-muted)' }}>Code Stats</p>
+                <p className="text-xs font-semibold uppercase mb-3 flex items-center gap-2" style={{ color: 'var(--text-muted)' }}>
+                  <IconFile className="opacity-60" size={12} />
+                  Code Stats
+                </p>
                 <div className="grid grid-cols-3 gap-3">
                   {[
                     { val: analysis.stats.totalFiles, label: 'Files' },
@@ -273,7 +334,10 @@ export default function DashboardPage() {
 
             {/* Services */}
             <div>
-              <p className="text-xs font-semibold uppercase mb-3" style={{ color: 'var(--text-muted)' }}>Services Detected</p>
+              <p className="text-xs font-semibold uppercase mb-3 flex items-center gap-2" style={{ color: 'var(--text-muted)' }}>
+                <IconServer className="opacity-60" size={12} />
+                Services Detected
+              </p>
               {analysis.services.filter(s => s.found).length === 0 ? (
                 <p className="text-xs" style={{ color: 'var(--text-muted)' }}>No known services detected</p>
               ) : (
@@ -296,8 +360,8 @@ export default function DashboardPage() {
             {/* Endpoints */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div>
-                <p className="text-xs font-semibold uppercase mb-3" style={{ color: 'var(--text-muted)' }}>
-                  Open Endpoints <span style={{ color: 'var(--text-muted)' }}>({analysis.openEndpoints.length})</span>
+                <p className="text-xs font-semibold uppercase mb-3 flex items-center gap-2" style={{ color: 'var(--text-muted)' }}>
+                  Open Endpoints <span className="opacity-60">({analysis.openEndpoints.length})</span>
                 </p>
                 <div className="rounded-lg overflow-hidden max-h-48 overflow-y-auto" style={{ border: '1px solid var(--border)' }}>
                   {analysis.openEndpoints.length === 0 ? (
@@ -314,8 +378,8 @@ export default function DashboardPage() {
                 </div>
               </div>
               <div>
-                <p className="text-xs font-semibold uppercase mb-3" style={{ color: 'var(--text-muted)' }}>
-                  Protected Endpoints <span style={{ color: 'var(--text-muted)' }}>({analysis.protectedEndpoints.length})</span>
+                <p className="text-xs font-semibold uppercase mb-3 flex items-center gap-2" style={{ color: 'var(--text-muted)' }}>
+                  Protected Endpoints <span className="opacity-60">({analysis.protectedEndpoints.length})</span>
                 </p>
                 <div className="rounded-lg overflow-hidden max-h-48 overflow-y-auto" style={{ border: '1px solid var(--border)' }}>
                   {analysis.protectedEndpoints.length === 0 ? (
@@ -327,7 +391,7 @@ export default function DashboardPage() {
                         color: ep.method === 'GET' ? '#00ff88' : ep.method === 'POST' ? '#64b4ff' : ep.method === 'DELETE' ? '#ff6b6b' : 'var(--text-secondary)',
                       }}>{ep.method}</span>
                       <span className="text-xs font-mono flex-1 truncate" style={{ color: 'var(--text-secondary)' }}>{ep.path}</span>
-                      <span className="text-xs" style={{ color: '#ffb800' }}>🔒</span>
+                      <IconLock className="text-[#ffb800] opacity-70" size={12} />
                     </div>
                   ))}
                 </div>
@@ -341,12 +405,12 @@ export default function DashboardPage() {
                   <p className="text-xs font-semibold uppercase" style={{ color: 'var(--text-muted)' }}>Code Quality</p>
                   <div className="flex items-center gap-2">
                     <div className="w-24 h-2 rounded-full overflow-hidden" style={{ background: 'rgba(255,255,255,0.1)' }}>
-                      <div className="h-full rounded-full" style={{
+                      <div className="h-full rounded-full transition-all" style={{
                         width: `${analysis.codeQuality.score}%`,
                         background: analysis.codeQuality.score >= 80 ? '#00ff88' : analysis.codeQuality.score >= 60 ? '#ffb800' : '#ff4444',
                       }} />
                     </div>
-                    <span className="text-sm font-bold" style={{
+                    <span className="text-sm font-bold font-mono" style={{
                       color: analysis.codeQuality.score >= 80 ? '#00ff88' : analysis.codeQuality.score >= 60 ? '#ffb800' : '#ff4444',
                     }}>
                       {analysis.codeQuality.score}/100
@@ -359,39 +423,43 @@ export default function DashboardPage() {
                       background: issue.severity === 'error' ? 'rgba(255,68,68,0.08)' : issue.severity === 'warning' ? 'rgba(255,184,0,0.08)' : 'rgba(255,255,255,0.03)',
                       color: issue.severity === 'error' ? '#ff6b6b' : issue.severity === 'warning' ? '#ffd700' : 'var(--text-secondary)',
                     }}>
-                      <span>{issue.severity === 'error' ? '✗' : issue.severity === 'warning' ? '⚠' : '✓'}</span>
+                      <span className="mt-0.5">{issue.severity === 'error' ? <IconAlert size={10} /> : issue.severity === 'warning' ? <IconAlert size={10} /> : <IconShield size={10} />}</span>
                       <span>{issue.message}{issue.file ? ` (${issue.file})` : ''}</span>
                     </div>
                   ))}
                   {analysis.codeQuality.positives.map((p, i) => (
                     <div key={`pos-${i}`} className="flex items-start gap-2 text-xs p-2 rounded-lg" style={{ background: 'rgba(0,255,136,0.06)', color: '#00ff88' }}>
-                      <span>✓</span><span>{p}</span>
+                      <IconShield size={10} className="mt-0.5" /><span>{p}</span>
                     </div>
                   ))}
                   {analysis.duplicateEndpoints.length > 0 && (
                     <div className="flex items-start gap-2 text-xs p-2 rounded-lg" style={{ background: 'rgba(255,68,68,0.08)', color: '#ff6b6b' }}>
-                      <span>✗</span>
-                      <span>Duplicate endpoints: {analysis.duplicateEndpoints.map(d => `${d.method} ${d.path} (×${d.count})`).join(', ')}</span>
+                      <IconAlert size={10} className="mt-0.5" />
+                      <span>Duplicate endpoints: {analysis.duplicateEndpoints.map(d => `${d.method} ${d.path} (x${d.count})`).join(', ')}</span>
                     </div>
                   )}
                 </div>
               </div>
               <div>
-                <p className="text-xs font-semibold uppercase mb-3" style={{ color: 'var(--text-muted)' }}>Security</p>
+                <p className="text-xs font-semibold uppercase mb-3 flex items-center gap-2" style={{ color: 'var(--text-muted)' }}>
+                  <IconLock className="opacity-60" size={12} />
+                  Security
+                </p>
                 <div className="space-y-2">
                   {analysis.security.issues.map((issue, i) => (
                     <div key={i} className="flex items-start gap-2 text-xs p-2 rounded-lg" style={{
                       background: issue.severity === 'error' ? 'rgba(255,68,68,0.08)' : issue.severity === 'warning' ? 'rgba(255,184,0,0.08)' : 'rgba(0,255,136,0.06)',
                       color: issue.severity === 'error' ? '#ff6b6b' : issue.severity === 'warning' ? '#ffd700' : '#00ff88',
                     }}>
-                      <span>{issue.severity === 'error' ? '✗' : issue.severity === 'warning' ? '⚠' : '✓'}</span>
+                      <span className="mt-0.5">{issue.severity === 'error' ? <IconAlert size={10} /> : issue.severity === 'warning' ? <IconAlert size={10} /> : <IconShield size={10} />}</span>
                       <span>{issue.message}{issue.file ? ` (${issue.file})` : ''}</span>
                     </div>
                   ))}
                 </div>
                 {analysis.envFiles.length > 0 && (
-                  <div className="mt-3 p-2 rounded-lg text-xs" style={{ background: 'rgba(0,255,136,0.06)', color: '#00ff88' }}>
-                    ✓ .env files found: {analysis.envFiles.map(f => f.split('/').pop()).join(', ')}
+                  <div className="mt-3 p-2 rounded-lg text-xs flex items-center gap-2" style={{ background: 'rgba(0,255,136,0.06)', color: '#00ff88' }}>
+                    <IconShield size={10} />
+                    .env files found: {analysis.envFiles.map(f => f.split('/').pop()).join(', ')}
                   </div>
                 )}
               </div>
@@ -400,10 +468,12 @@ export default function DashboardPage() {
         )}
 
         {!analysis && !analyzing && (
-          <div className="px-6 py-10 text-center" style={{ color: 'var(--text-muted)' }}>
-            <span className="text-3xl block mb-3 opacity-30">📄</span>
-            <p className="text-sm">Upload a ZIP of your project to get a full analysis report</p>
-            <p className="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>All analysis runs locally in your browser — no data is uploaded anywhere</p>
+          <div className="px-6 py-12 text-center" style={{ color: 'var(--text-muted)' }}>
+            <div className="w-16 h-16 rounded-2xl mx-auto mb-4 flex items-center justify-center" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border)' }}>
+              <IconFile className="opacity-30" size={28} />
+            </div>
+            <p className="text-sm font-medium">Upload a ZIP of your project to get a full analysis report</p>
+            <p className="text-xs mt-1.5 opacity-60">All analysis runs locally in your browser — no data is uploaded anywhere</p>
           </div>
         )}
       </div>

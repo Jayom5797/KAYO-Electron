@@ -10,10 +10,10 @@
     --font-heading: 'Outfit', sans-serif;
     --font-mono: 'Space Grotesk', monospace;
 
-    --primary: #ff4444;
-    --primary-glow: rgba(255, 68, 68, 0.3);
-    --accent: #ff9600;
-    --accent-glow: rgba(255, 150, 0, 0.2);
+    --primary: #7c5cfc;
+    --primary-glow: rgba(124, 92, 252, 0.3);
+    --accent: #a78bfa;
+    --accent-glow: rgba(167, 139, 250, 0.2);
     --success: #00ff88;
     --info: #64b4ff;
     --warning: #ffb800;
@@ -28,7 +28,7 @@
 
     --border: rgba(255, 255, 255, 0.08);
     --border-hover: rgba(255, 255, 255, 0.15);
-    --border-focus: rgba(255, 68, 68, 0.5);
+    --border-focus: rgba(124, 92, 252, 0.5);
 
     --text: #ffffff;
     --text-secondary: #a0a0b0;
@@ -81,7 +81,7 @@
 
 /* ── Buttons ──────────────────────────────────────────────── */
 .btn-primary {
-  background: linear-gradient(135deg, var(--primary), #cc2222);
+  background: linear-gradient(135deg, var(--primary), #5b3fd4);
   color: white;
   border: none;
   border-radius: var(--radius-sm);
@@ -102,7 +102,7 @@
 }
 
 .btn-accent {
-  background: linear-gradient(135deg, var(--accent), #e68600);
+  background: linear-gradient(135deg, var(--accent), #8b6cf0);
   color: white;
   border: none;
   border-radius: var(--radius-sm);
@@ -143,7 +143,7 @@
 .input-dark:focus {
   outline: none;
   border-color: var(--border-focus);
-  box-shadow: 0 0 0 3px rgba(255, 68, 68, 0.15);
+  box-shadow: 0 0 0 3px rgba(124, 92, 252, 0.15);
 }
 .input-dark::placeholder {
   color: var(--text-muted);
@@ -241,11 +241,65 @@
   border-radius: var(--radius-sm);
 }
 
+/* ── Grid Background ──────────────────────────────────────── */
+.bg-grid {
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.07) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.07) 1px, transparent 1px);
+  background-size: 40px 40px;
+}
+.bg-grid-dense {
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.06) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.06) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+.bg-radial-fade {
+  background: radial-gradient(ellipse at 50% 0%, rgba(120, 80, 220, 0.08) 0%, transparent 60%);
+}
+
+/* ── Cyber Borders ────────────────────────────────────────── */
+.cyber-border {
+  position: relative;
+}
+.cyber-border::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  background: linear-gradient(135deg, rgba(124, 92, 252, 0.3), transparent 50%, rgba(100, 180, 255, 0.2));
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+}
+
+/* ── Stat Card Glow on Hover ──────────────────────────────── */
+.stat-card {
+  position: relative;
+  overflow: hidden;
+}
+.stat-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--stat-accent, rgba(124,92,252,0.5)), transparent);
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+.stat-card:hover::before {
+  opacity: 1;
+}
+
 /* ── Scrollbar ────────────────────────────────────────────── */
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: rgba(255, 68, 68, 0.3); border-radius: 3px; }
-::-webkit-scrollbar-thumb:hover { background: rgba(255, 68, 68, 0.5); }
+::-webkit-scrollbar-thumb { background: rgba(124, 92, 252, 0.3); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(124, 92, 252, 0.5); }
 
 /* ── Card Hover ───────────────────────────────────────────── */
 .card-hover {
@@ -259,7 +313,7 @@
 /* ── Glow Effects ─────────────────────────────────────────── */
 .glow-red { box-shadow: 0 0 20px rgba(255, 68, 68, 0.2); }
 .glow-green { box-shadow: 0 0 20px rgba(0, 255, 136, 0.2); }
-.glow-orange { box-shadow: 0 0 20px rgba(255, 150, 0, 0.2); }
+.glow-purple { box-shadow: 0 0 20px rgba(124, 92, 252, 0.2); }
 .glow-blue { box-shadow: 0 0 20px rgba(100, 180, 255, 0.2); }
 
 /* ── Override Tailwind defaults for dark theme ─────────────── */

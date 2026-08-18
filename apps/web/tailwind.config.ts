@@ -14,8 +14,8 @@ const config: Config = {
         mono: ['Space Grotesk', 'monospace'],
       },
       colors: {
-        primary: '#ff4444',
-        accent: '#ff9600',
+        primary: '#7c5cfc',
+        accent: '#a78bfa',
         success: '#00ff88',
         info: '#64b4ff',
         warning: '#ffb800',
@@ -31,9 +31,9 @@ const config: Config = {
         DEFAULT: '12px',
       },
       boxShadow: {
-        'glow-red': '0 0 20px rgba(255, 68, 68, 0.2)',
+        'glow-purple': '0 0 20px rgba(124, 92, 252, 0.2)',
+        'glow-blue': '0 0 20px rgba(100, 180, 255, 0.2)',
         'glow-green': '0 0 20px rgba(0, 255, 136, 0.2)',
-        'glow-orange': '0 0 20px rgba(255, 150, 0, 0.2)',
       },
     },
   },
