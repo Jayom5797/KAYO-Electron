@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useState, useEffect } from 'react'
 import { apiClient } from '@/lib/api-client'
 import { formatRelativeTime, getSeverityColor } from '@/lib/utils'
+import { wsClient } from '@/lib/websocket-client'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
@@ -18,12 +19,42 @@ export default function AssessmentsPage() {
   const [showCrawledPages, setShowCrawledPages] = useState(false)
   const [reconResult, setReconResult] = useState<any>(null)
   const [reconning, setReconning] = useState(false)
+  const [activeScan, setActiveScan] = useState(false)
 
   // Load deep scan history from localStorage
   useEffect(() => {
     const saved = localStorage.getItem('kayo_deepscan_history')
     if (saved) { try { setDeepScanHistory(JSON.parse(saved)) } catch {} }
   }, [])
+
+  // Listen for real-time scan completion events via WebSocket
+  useEffect(() => {
+    wsClient.connect()
+
+    const onScanCompleted = (data: any) => {
+      queryClient.invalidateQueries({ queryKey: ['scans'] })
+      // If this is the currently selected scan, refresh its findings too
+      if (selectedScan && data.scan_id === selectedScan.scan_id) {
+        queryClient.invalidateQueries({ queryKey: ['findings', data.scan_id] })
+        setSelectedScan((prev: any) => prev ? { ...prev, status: 'completed', posture_rating: data.posture_rating, posture_score: data.posture_score, total_findings: data.total_findings } : prev)
+      }
+    }
+
+    const onScanFailed = (data: any) => {
+      queryClient.invalidateQueries({ queryKey: ['scans'] })
+      if (selectedScan && data.scan_id === selectedScan.scan_id) {
+        setSelectedScan((prev: any) => prev ? { ...prev, status: 'failed', error: data.error } : prev)
+      }
+    }
+
+    wsClient.on('scan.completed', onScanCompleted)
+    wsClient.on('scan.failed', onScanFailed)
+
+    return () => {
+      wsClient.off('scan.completed', onScanCompleted)
+      wsClient.off('scan.failed', onScanFailed)
+    }
+  }, [queryClient, selectedScan])
 
   const saveDeepScanHistory = (result: any) => {
     const entry = { ...result, scanned_at: new Date().toISOString() }
@@ -76,7 +107,7 @@ export default function AssessmentsPage() {
       const resp = await fetch(`${API_URL}/api/scans/${scanType}`, {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ type: scanType, target: scanTarget }),
+        body: JSON.stringify({ type: scanType, target: scanTarget, active_scan: activeScan }),
       })
       return resp.json()
     },
@@ -176,6 +207,39 @@ export default function AssessmentsPage() {
           >
             {submitScan.isPending ? 'Scanning...' : 'Run Assessment'}
           </button>
+          {/* Active scan toggle — enables intrusive vuln probing (SQLi, XSS, etc.) */}
+          <label
+            className="flex items-center gap-2 cursor-pointer select-none whitespace-nowrap px-3 py-2 rounded-lg transition-all"
+            style={{
+              background: activeScan ? 'rgba(255,68,68,0.08)' : 'rgba(255,255,255,0.03)',
+              border: `1px solid ${activeScan ? 'rgba(255,68,68,0.35)' : 'var(--border)'}`,
+            }}
+            title="Enables active vulnerability probing: SQLi, XSS, path traversal, open redirect, IDOR. Only use on targets you own or are authorised to test."
+          >
+            <input
+              type="checkbox"
+              className="sr-only"
+              checked={activeScan}
+              onChange={(e) => setActiveScan(e.target.checked)}
+              aria-label="Enable active vulnerability scanning"
+            />
+            <div
+              className="relative w-8 h-4 rounded-full transition-colors flex-shrink-0"
+              style={{ background: activeScan ? '#ff4444' : 'rgba(255,255,255,0.1)' }}
+            >
+              <div
+                className="absolute top-0.5 w-3 h-3 rounded-full transition-all duration-150"
+                style={{
+                  background: 'white',
+                  left: activeScan ? '17px' : '2px',
+                  boxShadow: '0 1px 3px rgba(0,0,0,0.4)',
+                }}
+              />
+            </div>
+            <span className="text-xs font-semibold" style={{ color: activeScan ? '#ff6b6b' : 'var(--text-muted)' }}>
+              Active Scan
+            </span>
+          </label>
           <button
             onClick={runDeepScan}
             disabled={!scanTarget || deepScanning}

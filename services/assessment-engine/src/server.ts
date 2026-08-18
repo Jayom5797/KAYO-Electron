@@ -39,7 +39,7 @@ interface ScanRecord {
 const scans = new Map<string, ScanRecord>();
 
 // ── Auth middleware (validates internal service token) ─────────────────────────
-const SERVICE_TOKEN = process.env.KAYO_SERVICE_TOKEN || 'dev-token';
+const SERVICE_TOKEN = process.env.KAYO_SERVICE_TOKEN || 'kayo-internal-service-token';
 
 app.use((req, res, next) => {
   // Health check is unauthenticated

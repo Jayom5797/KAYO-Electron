@@ -170,7 +170,7 @@ async def health_check():
         checks["redis"] = {"status": "down", "error": str(e)}
         overall = "degraded"
 
-    # Kafka
+    # Kafka — optional service, does not affect overall health
     try:
         import socket
         start = _time.time()
@@ -179,10 +179,9 @@ async def health_check():
         sock.close()
         checks["kafka"] = {"status": "up", "response_ms": round((_time.time() - start) * 1000)}
     except Exception as e:
-        checks["kafka"] = {"status": "down", "error": str(e)}
-        overall = "degraded"
+        checks["kafka"] = {"status": "unavailable", "error": str(e), "optional": True}
 
-    # Neo4j
+    # Neo4j — optional service, does not affect overall health
     try:
         from neo4j import GraphDatabase
         start = _time.time()
@@ -195,10 +194,9 @@ async def health_check():
         driver.close()
         checks["neo4j"] = {"status": "up", "response_ms": round((_time.time() - start) * 1000)}
     except Exception as e:
-        checks["neo4j"] = {"status": "down", "error": str(e)}
-        overall = "degraded"
+        checks["neo4j"] = {"status": "unavailable", "error": str(e), "optional": True}
 
-    # ClickHouse
+    # ClickHouse — optional service, does not affect overall health
     try:
         import socket
         start = _time.time()
@@ -206,8 +204,7 @@ async def health_check():
         sock.close()
         checks["clickhouse"] = {"status": "up", "response_ms": round((_time.time() - start) * 1000)}
     except Exception as e:
-        checks["clickhouse"] = {"status": "down", "error": str(e)}
-        overall = "degraded"
+        checks["clickhouse"] = {"status": "unavailable", "error": str(e), "optional": True}
 
     return {
         "status": overall,
