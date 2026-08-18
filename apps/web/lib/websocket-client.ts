@@ -26,7 +26,19 @@ class WebSocketClient {
     if (!token) return // not logged in yet
 
     const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
-    const wsBase = apiUrl.replace(/^http/, 'ws')
+    // CloudFront does not support WebSocket upgrades — connect directly to the
+    // API origin by replacing the CloudFront domain with the API URL's host,
+    // or falling back to the same origin converted to ws/wss.
+    // Since NEXT_PUBLIC_API_URL is the CloudFront HTTPS URL, we convert it to
+    // the ALB HTTP URL for WS (ALB supports ws://).
+    // For local dev, just convert http→ws.
+    let wsBase: string
+    if (apiUrl.includes('cloudfront.net')) {
+      // Use ALB directly for WebSocket — CloudFront proxies HTTP but not WS upgrades
+      wsBase = 'ws://kayo-alb-44749188.us-east-1.elb.amazonaws.com'
+    } else {
+      wsBase = apiUrl.replace(/^https/, 'wss').replace(/^http/, 'ws')
+    }
     const url = `${wsBase}/ws?token=${encodeURIComponent(token)}`
 
     try {

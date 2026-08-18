@@ -422,7 +422,7 @@ Resources:
             - ContainerPort: 3000
           Environment:
             - Name: NEXT_PUBLIC_API_URL
-              Value: !Sub 'http://${ApplicationLoadBalancer.DNSName}'
+              Value: !Sub 'https://${CloudFrontDistribution.DomainName}'
             - Name: PORT
               Value: '3000'
             - Name: HOSTNAME
@@ -538,6 +538,15 @@ Resources:
             CachedMethods: [GET, HEAD]
             CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad  # CachingDisabled
             Compress: true
+          # WebSocket connections — must pass through without caching or HTTPS redirect
+          - PathPattern: '/ws'
+            TargetOriginId: kayo-alb-api
+            ViewerProtocolPolicy: allow-all
+            AllowedMethods: [GET, HEAD, OPTIONS, PUT, POST, PATCH, DELETE]
+            CachedMethods: [GET, HEAD]
+            CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad  # CachingDisabled
+            OriginRequestPolicyId: b689b0a8-53d0-40ab-baf2-68738e2966ac  # AllViewerExceptHostHeader
+            Compress: false
         # Default behaviour — frontend
         DefaultCacheBehavior:
           TargetOriginId: kayo-alb-frontend
