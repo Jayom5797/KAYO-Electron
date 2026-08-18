@@ -1,5 +1,4 @@
-import type { NetworkRequest } from '../types.js';
-import type { DiscoveredForm } from '../types.js';
+import type { NetworkRequest, DiscoveredForm } from '../types.js';
 
 export interface JwtClaims {
   header: Record<string, unknown>;

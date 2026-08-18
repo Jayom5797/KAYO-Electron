@@ -1,4 +1,5 @@
-import type { NetworkRequest } from './types.js';
+import type { NetworkRequest, DiscoveredForm } from './types.js';
+import type { ApiEndpoint } from './security/apiExtractor.js';
 import { normalizeAndValidate } from './url.js';
 import { captureNetwork } from './capture.js';
 import { processRequests } from './metrics.js';
@@ -42,7 +43,7 @@ export async function analyzeSecurity(
   url: string,
   requests: NetworkRequest[],
   options: ScanOptions = {},
-  forms: import('./types.js').DiscoveredForm[] = [],
+  forms: DiscoveredForm[] = [],
 ) {
   const [tlsResult, corsReport, apiEndpoints, fingerprint, dnsReport, cspReport] =
     await Promise.allSettled([
@@ -98,9 +99,9 @@ export async function analyzeSecurity(
  * by action+method so the same endpoint isn't tested twice.
  */
 function mergeEndpoints(
-  observed: import('./security/apiExtractor.js').ApiEndpoint[],
-  fromForms: import('./security/apiExtractor.js').ApiEndpoint[],
-): import('./security/apiExtractor.js').ApiEndpoint[] {
+  observed: ApiEndpoint[],
+  fromForms: ApiEndpoint[],
+): ApiEndpoint[] {
   const seen = new Set(observed.map((e) => `${e.method}:${e.url}`));
   const unique = fromForms.filter((e) => {
     const key = `${e.method}:${e.url}`;
