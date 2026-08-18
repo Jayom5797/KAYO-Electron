@@ -175,7 +175,7 @@ async function capturePage(
   const links: string[] = [];
   try {
     const hrefs = await page.$$eval('a[href]', (els) =>
-      els.map((el) => (el as HTMLAnchorElement).href).filter(Boolean)
+      els.map((el) => (el as any).href as string).filter(Boolean)
     );
     links.push(...hrefs);
   } catch { /* page may have already navigated */ }
@@ -185,13 +185,13 @@ async function capturePage(
   try {
     const rawForms = await page.$$eval('form', (formEls) =>
       formEls.map((f) => {
-        const action = (f as HTMLFormElement).action || '';
-        const method = ((f as HTMLFormElement).method || 'GET').toUpperCase();
-        const fields = Array.from(f.querySelectorAll('input, select, textarea')).map((el) => ({
-          name: (el as HTMLInputElement).name || '',
-          type: (el as HTMLInputElement).type || 'text',
-          value: (el as HTMLInputElement).value || '',
-        })).filter((field) => field.name);
+        const form = f as any;
+        const action = form.action || '';
+        const method = (form.method || 'GET').toUpperCase();
+        const fields = Array.from(f.querySelectorAll('input, select, textarea')).map((el) => {
+          const input = el as any;
+          return { name: input.name || '', type: input.type || 'text', value: input.value || '' };
+        }).filter((field: any) => field.name);
         return { action, method, fields };
       })
     );

@@ -197,7 +197,6 @@ export async function runScan(rawUrl: string, options: ScanOptions = {}) {
     totalDurationMs: capture.totalDurationMs,
     pagesScanned: capture.discoveredUrls?.length ?? 1,
     pagesDiscovered: capture.discoveredUrls ?? [validation.url],
-    formsDiscovered: security.formsDiscovered,
     aggregate: data.aggregate,
     byType: data.byType,
     slowest: data.slowest,
@@ -205,6 +204,7 @@ export async function runScan(rawUrl: string, options: ScanOptions = {}) {
     requests: data.requests,
     har,
     ...security,
+    formsDiscovered: security.formsDiscovered,
     posture: computePosture(security),
   };
 }
