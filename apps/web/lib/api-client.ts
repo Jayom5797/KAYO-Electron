@@ -1,13 +1,25 @@
 import axios, { AxiosError, AxiosInstance } from 'axios'
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+// At runtime, use the current page's origin so API calls always go to the
+// same host the user is on — this avoids baked-in URL mismatches entirely.
+// Falls back to NEXT_PUBLIC_API_URL for local dev where origin != API host.
+function getApiUrl(): string {
+  if (typeof window !== 'undefined') {
+    const origin = window.location.origin
+    // If we're on the CloudFront domain or any production domain, use that origin
+    if (!origin.includes('localhost') && !origin.includes('127.0.0.1')) {
+      return origin
+    }
+  }
+  return process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+}
 
 class ApiClient {
   private client: AxiosInstance
 
   constructor() {
     this.client = axios.create({
-      baseURL: API_URL,
+      baseURL: getApiUrl(),
       headers: {
         'Content-Type': 'application/json',
       },
