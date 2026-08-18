@@ -12,6 +12,10 @@ from api.routes import tenants_router, auth_router, deployments_router, incident
 from api.middleware.rate_limiter import RateLimitMiddleware
 from api.middleware.audit_logger import AuditLogMiddleware
 
+# Import all models so Base.metadata.create_all picks them up
+from models import user, tenant, scan, asset, deployment, audit_log, incident, invitation, webhook  # noqa
+from models.project import Project  # noqa
+
 # Configure logging
 logging.basicConfig(
     level=logging.INFO if settings.debug else logging.WARNING,

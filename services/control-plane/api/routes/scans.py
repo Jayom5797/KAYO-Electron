@@ -424,10 +424,6 @@ async def evaluate_security_gate(
     findings_dicts = [{"severity": f.severity, "type": f.type, "category": f.category} for f in findings]
 
     # Import and run gate evaluation
-    import sys
-    import os
-    sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../../../../services/deployment-engine')))
-
     from security_gate import evaluate_gate, DeploymentPolicy
 
     policy = None

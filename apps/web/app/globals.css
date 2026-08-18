@@ -131,7 +131,9 @@
 
 /* ── Inputs ───────────────────────────────────────────────── */
 .input-dark {
-  background: var(--bg-input);
+  background: var(--bg-input) !important;
+  -webkit-appearance: none;
+  appearance: none;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   color: var(--text);
@@ -147,6 +149,19 @@
 }
 .input-dark::placeholder {
   color: var(--text-muted);
+}
+
+/* Reset browser UA styles for all form controls inside the app */
+@layer base {
+  input, select, textarea, button {
+    -webkit-appearance: none;
+    appearance: none;
+    background-color: transparent;
+  }
+  input[type="checkbox"], input[type="radio"] {
+    -webkit-appearance: auto;
+    appearance: auto;
+  }
 }
 
 /* ── Status Badges ────────────────────────────────────────── */
