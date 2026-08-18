@@ -1,4 +1,5 @@
 import type { NetworkRequest } from '../types.js';
+import type { DiscoveredForm } from '../types.js';
 
 export interface JwtClaims {
   header: Record<string, unknown>;
@@ -20,6 +21,8 @@ export interface ApiEndpoint {
   authType: string | null;
   jwts: JwtClaims[];
   sensitiveLeaks: SensitiveLeak[];
+  /** True when synthesised from an HTML form rather than observed network traffic. */
+  isFormEndpoint?: boolean;
 }
 
 export interface SensitiveLeak {
@@ -214,4 +217,70 @@ export function extractApiEndpoints(requests: NetworkRequest[]): ApiEndpoint[] {
       sensitiveLeaks: uniqueLeaks,
     };
   });
+}
+
+/**
+ * Convert discovered HTML forms into ApiEndpoint objects so the active vuln
+ * scanner can probe their fields for SQLi, XSS, open redirect, etc.
+ *
+ * A form field becomes a queryParam key regardless of whether the form uses
+ * GET or POST — the vuln scanner tests query params for GET and synthesises
+ * POST bodies for POST endpoints.
+ *
+ * Password fields are included intentionally: we want to test for SQLi/XSS
+ * in auth endpoints, which is exactly where they're most dangerous.
+ */
+export function formsToApiEndpoints(forms: DiscoveredForm[]): ApiEndpoint[] {
+  const seen = new Set<string>();
+  const endpoints: ApiEndpoint[] = [];
+
+  for (const form of forms) {
+    // Deduplicate by action+method so the same login form on every page isn't
+    // tested 50 times.
+    const key = `${form.method}:${form.action}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+
+    // Only include fields that have a name — unnamed inputs can't be submitted.
+    // Exclude purely decorative types that carry no user-controlled data.
+    const injectableFields = form.fields
+      .filter((f) => f.name && !['submit', 'button', 'reset', 'image', 'file', 'hidden'].includes(f.type))
+      .map((f) => f.name);
+
+    if (injectableFields.length === 0) continue;
+
+    let parsed: URL;
+    try {
+      parsed = new URL(form.action);
+    } catch {
+      continue;
+    }
+
+    // For GET forms, query params come from the form fields.
+    // For POST forms, we also expose them as queryParams so the scanner can
+    // synthesise a POST body (the scanner's makeRequest already supports this).
+    const queryParams = form.method === 'GET'
+      ? [...Array.from(parsed.searchParams.keys()), ...injectableFields]
+      : injectableFields;
+
+    endpoints.push({
+      url: form.action,
+      method: form.method,
+      baseUrl: `${parsed.protocol}//${parsed.host}`,
+      path: parsed.pathname,
+      queryParams: [...new Set(queryParams)], // dedupe
+      requestContentType: form.method === 'POST' ? 'application/x-www-form-urlencoded' : null,
+      responseContentType: null,
+      statusCode: null,
+      durationMs: 0,
+      hasAuth: false,
+      authType: null,
+      jwts: [],
+      sensitiveLeaks: [],
+      // Tag so the vuln scanner knows to send POST body instead of query params
+      isFormEndpoint: true,
+    } as ApiEndpoint & { isFormEndpoint: boolean });
+  }
+
+  return endpoints;
 }

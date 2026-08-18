@@ -107,7 +107,12 @@ export default function AssessmentsPage() {
       const resp = await fetch(`${API_URL}/api/scans/${scanType}`, {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ type: scanType, target: scanTarget, active_scan: activeScan }),
+        body: JSON.stringify({
+          type: scanType,
+          target: scanTarget,
+          active_scan: activeScan,
+          options: { max_pages: 25 },
+        }),
       })
       return resp.json()
     },
@@ -205,7 +210,7 @@ export default function AssessmentsPage() {
             disabled={!scanTarget || submitScan.isPending}
             className="btn-primary disabled:opacity-50 whitespace-nowrap"
           >
-            {submitScan.isPending ? 'Scanning...' : 'Run Assessment'}
+            {submitScan.isPending ? (activeScan ? '🕷 Scanning site...' : 'Scanning...') : 'Run Assessment'}
           </button>
           {/* Active scan toggle — enables intrusive vuln probing (SQLi, XSS, etc.) */}
           <label
@@ -586,6 +591,22 @@ export default function AssessmentsPage() {
                     </span>
                   )
                 })}
+              </div>
+            )}
+
+            {/* Pages crawled + forms discovered */}
+            {(selectedScan.pages_scanned > 0 || selectedScan.forms_discovered > 0) && (
+              <div className="px-6 py-2 flex gap-4 text-xs" style={{ borderBottom: '1px solid var(--border)', background: 'rgba(255,255,255,0.01)' }}>
+                {selectedScan.pages_scanned > 0 && (
+                  <span style={{ color: 'var(--text-muted)' }}>
+                    🕷 <span className="text-white font-medium">{selectedScan.pages_scanned}</span> pages crawled
+                  </span>
+                )}
+                {selectedScan.forms_discovered > 0 && (
+                  <span style={{ color: 'var(--text-muted)' }}>
+                    📋 <span className="text-white font-medium">{selectedScan.forms_discovered}</span> forms tested
+                  </span>
+                )}
               </div>
             )}
 

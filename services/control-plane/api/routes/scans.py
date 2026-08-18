@@ -229,6 +229,7 @@ async def create_url_scan(
             url=scan_data.target,
             tenant_id=str(tenant_id),
             active_scan=scan_data.active_scan,
+            max_pages=scan_data.options.get("max_pages", 25) if scan_data.options else 25,
         )
         engine_scan_id = result.get("scan_id")
         scan.status = "running"
