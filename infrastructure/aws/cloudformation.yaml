@@ -481,13 +481,73 @@ Resources:
           ContainerPort: 3000
           TargetGroupArn: !Ref FrontendTargetGroup
 
+  # ── CloudFront Distribution ──────────────────────────────────────────────────
+  CloudFrontDistribution:
+    Type: AWS::CloudFront::Distribution
+    DependsOn: ApplicationLoadBalancer
+    Properties:
+      DistributionConfig:
+        Comment: KAYO Platform CDN
+        Enabled: true
+        HttpVersion: http2
+        IPV6Enabled: true
+        # Two origins: frontend (default) and API
+        Origins:
+          - Id: kayo-alb-frontend
+            DomainName: !GetAtt ApplicationLoadBalancer.DNSName
+            CustomOriginConfig:
+              HTTPPort: 80
+              OriginProtocolPolicy: http-only
+              OriginReadTimeout: 60
+              OriginKeepaliveTimeout: 60
+          - Id: kayo-alb-api
+            DomainName: !GetAtt ApplicationLoadBalancer.DNSName
+            CustomOriginConfig:
+              HTTPPort: 80
+              OriginProtocolPolicy: http-only
+              OriginReadTimeout: 60
+              OriginKeepaliveTimeout: 60
+        # Route /api/* and /health to API origin — everything else to frontend
+        CacheBehaviors:
+          - PathPattern: '/api/*'
+            TargetOriginId: kayo-alb-api
+            ViewerProtocolPolicy: redirect-to-https
+            AllowedMethods: [GET, HEAD, OPTIONS, PUT, POST, PATCH, DELETE]
+            CachedMethods: [GET, HEAD]
+            CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad  # CachingDisabled managed policy
+            OriginRequestPolicyId: b689b0a8-53d0-40ab-baf2-68738e2966ac  # AllViewerExceptHostHeader
+            Compress: true
+          - PathPattern: '/health'
+            TargetOriginId: kayo-alb-api
+            ViewerProtocolPolicy: redirect-to-https
+            AllowedMethods: [GET, HEAD]
+            CachedMethods: [GET, HEAD]
+            CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad  # CachingDisabled
+            Compress: true
+        # Default behaviour — frontend
+        DefaultCacheBehavior:
+          TargetOriginId: kayo-alb-frontend
+          ViewerProtocolPolicy: redirect-to-https
+          AllowedMethods: [GET, HEAD, OPTIONS, PUT, POST, PATCH, DELETE]
+          CachedMethods: [GET, HEAD]
+          CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad  # CachingDisabled — Next.js handles its own caching
+          OriginRequestPolicyId: b689b0a8-53d0-40ab-baf2-68738e2966ac  # AllViewerExceptHostHeader
+          Compress: true
+        PriceClass: PriceClass_100  # US, Canada, Europe edge locations
+
 Outputs:
+  CloudFrontURL:
+    Description: KAYO Platform HTTPS URL (use this)
+    Value: !Sub 'https://${CloudFrontDistribution.DomainName}'
+  CloudFrontDomain:
+    Description: CloudFront Domain Name
+    Value: !GetAtt CloudFrontDistribution.DomainName
   ALBURL:
-    Description: KAYO Platform URL
+    Description: ALB URL (internal — use CloudFrontURL instead)
     Value: !Sub 'http://${ApplicationLoadBalancer.DNSName}'
   APIEndpoint:
     Description: API Endpoint
-    Value: !Sub 'http://${ApplicationLoadBalancer.DNSName}/api'
+    Value: !Sub 'https://${CloudFrontDistribution.DomainName}/api'
   DatabaseEndpoint:
     Description: RDS Endpoint
     Value: !GetAtt Database.Endpoint.Address

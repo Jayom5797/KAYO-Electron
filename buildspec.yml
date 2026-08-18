@@ -5,20 +5,22 @@ env:
     AWS_ACCOUNT_ID: "700640308663"
     AWS_DEFAULT_REGION: "us-east-1"
     ECR_REGISTRY: "700640308663.dkr.ecr.us-east-1.amazonaws.com"
-    NEXT_PUBLIC_API_URL: "http://kayo-alb-44749188.us-east-1.elb.amazonaws.com"
 
 phases:
   pre_build:
     commands:
       - echo Logging in to Amazon ECR...
       - aws ecr get-login-password --region $AWS_DEFAULT_REGION | docker login --username AWS --password-stdin $ECR_REGISTRY
+      - echo Fetching CloudFront URL from stack outputs...
+      - export NEXT_PUBLIC_API_URL=$(aws cloudformation describe-stacks --stack-name kayo-platform --region $AWS_DEFAULT_REGION --query "Stacks[0].Outputs[?OutputKey=='CloudFrontURL'].OutputValue" --output text)
+      - echo "API URL will be $NEXT_PUBLIC_API_URL"
   build:
     commands:
       - echo Building Control Plane...
       - docker build -t $ECR_REGISTRY/kayo-control-plane:latest ./services/control-plane
       - echo Building Assessment Engine...
       - docker build -t $ECR_REGISTRY/kayo-assessment-engine:latest ./services/assessment-engine
-      - echo Building Frontend with ALB URL baked in...
+      - echo Building Frontend with CloudFront HTTPS URL baked in...
       - docker build --build-arg NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL -t $ECR_REGISTRY/kayo-frontend:latest ./apps/web
   post_build:
     commands:
