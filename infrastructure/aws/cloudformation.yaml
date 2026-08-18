@@ -214,6 +214,25 @@ Resources:
         - !Ref RedisSecurityGroup
       CacheSubnetGroupName: !Ref RedisSubnetGroup
 
+  # ── CloudWatch Log Groups ────────────────────────────────────────────────────
+  ControlPlaneLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /ecs/kayo-control-plane
+      RetentionInDays: 30
+
+  AssessmentEngineLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /ecs/kayo-assessment-engine
+      RetentionInDays: 30
+
+  FrontendLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /ecs/kayo-frontend
+      RetentionInDays: 30
+
   # ── ECS Cluster ──────────────────────────────────────────────────────────────
   ECSCluster:
     Type: AWS::ECS::Cluster
@@ -264,13 +283,14 @@ Resources:
 
   ALBListener:
     Type: AWS::ElasticLoadBalancingV2::Listener
+    DependsOn: [FrontendTargetGroup, ControlPlaneTargetGroup]
     Properties:
       LoadBalancerArn: !Ref ApplicationLoadBalancer
       Port: 80
       Protocol: HTTP
-      DefaultAction:
-        Type: forward
-        TargetGroupArn: !Ref FrontendTargetGroup
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref FrontendTargetGroup
 
   # Target Groups
   ControlPlaneTargetGroup:
@@ -285,7 +305,8 @@ Resources:
       HealthCheckIntervalSeconds: 30
       HealthCheckTimeoutSeconds: 10
       HealthyThresholdCount: 2
-      UnhealthyThresholdCount: 5
+      # Allow more failures before deregistering — gives containers time to start
+      UnhealthyThresholdCount: 10
 
   FrontendTargetGroup:
     Type: AWS::ElasticLoadBalancingV2::TargetGroup
@@ -299,7 +320,8 @@ Resources:
       HealthCheckIntervalSeconds: 30
       HealthCheckTimeoutSeconds: 10
       HealthyThresholdCount: 2
-      UnhealthyThresholdCount: 5
+      # Allow more failures before deregistering — gives containers time to start
+      UnhealthyThresholdCount: 10
 
   # ALB Routing Rules
   APIListenerRule:
@@ -317,7 +339,7 @@ Resources:
   # ── ECS Task Definitions ─────────────────────────────────────────────────────
   ControlPlaneTaskDef:
     Type: AWS::ECS::TaskDefinition
-    DependsOn: [Database, RedisCluster]
+    DependsOn: [Database, RedisCluster, ControlPlaneLogGroup, AssessmentEngineLogGroup]
     Properties:
       Family: kayo-control-plane
       Cpu: '512'
@@ -350,7 +372,6 @@ Resources:
               awslogs-group: /ecs/kayo-control-plane
               awslogs-region: !Ref AWS::Region
               awslogs-stream-prefix: ecs
-              awslogs-create-group: 'true'
         - Name: assessment-engine
           Image: !Sub '${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/kayo-assessment-engine:latest'
           PortMappings:
@@ -368,10 +389,10 @@ Resources:
               awslogs-group: /ecs/kayo-assessment-engine
               awslogs-region: !Ref AWS::Region
               awslogs-stream-prefix: ecs
-              awslogs-create-group: 'true'
 
   FrontendTaskDef:
     Type: AWS::ECS::TaskDefinition
+    DependsOn: [FrontendLogGroup]
     Properties:
       Family: kayo-frontend
       Cpu: '256'
@@ -387,7 +408,7 @@ Resources:
             - ContainerPort: 3000
           Environment:
             - Name: NEXT_PUBLIC_API_URL
-              Value: ''
+              Value: !Sub 'http://${ApplicationLoadBalancer.DNSName}'
             - Name: PORT
               Value: '3000'
             - Name: HOSTNAME
@@ -398,7 +419,6 @@ Resources:
               awslogs-group: /ecs/kayo-frontend
               awslogs-region: !Ref AWS::Region
               awslogs-stream-prefix: ecs
-              awslogs-create-group: 'true'
 
   # ── ECS Services ─────────────────────────────────────────────────────────────
   ControlPlaneService:
@@ -410,6 +430,14 @@ Resources:
       TaskDefinition: !Ref ControlPlaneTaskDef
       DesiredCount: 1
       LaunchType: FARGATE
+      # Give containers time to start before ALB health checks count against them
+      HealthCheckGracePeriodSeconds: 120
+      DeploymentConfiguration:
+        MinimumHealthyPercent: 0
+        MaximumPercent: 200
+        DeploymentCircuitBreaker:
+          Enable: true
+          Rollback: false
       NetworkConfiguration:
         AwsvpcConfiguration:
           AssignPublicIp: ENABLED
@@ -432,6 +460,14 @@ Resources:
       TaskDefinition: !Ref FrontendTaskDef
       DesiredCount: 1
       LaunchType: FARGATE
+      # Give Next.js time to boot before health checks kick in
+      HealthCheckGracePeriodSeconds: 120
+      DeploymentConfiguration:
+        MinimumHealthyPercent: 0
+        MaximumPercent: 200
+        DeploymentCircuitBreaker:
+          Enable: true
+          Rollback: false
       NetworkConfiguration:
         AwsvpcConfiguration:
           AssignPublicIp: ENABLED

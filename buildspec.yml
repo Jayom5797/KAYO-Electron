@@ -5,6 +5,7 @@ env:
     AWS_ACCOUNT_ID: "700640308663"
     AWS_DEFAULT_REGION: "us-east-1"
     ECR_REGISTRY: "700640308663.dkr.ecr.us-east-1.amazonaws.com"
+    NEXT_PUBLIC_API_URL: "http://kayo-alb-44749188.us-east-1.elb.amazonaws.com"
 
 phases:
   pre_build:
@@ -17,12 +18,15 @@ phases:
       - docker build -t $ECR_REGISTRY/kayo-control-plane:latest ./services/control-plane
       - echo Building Assessment Engine...
       - docker build -t $ECR_REGISTRY/kayo-assessment-engine:latest ./services/assessment-engine
-      - echo Building Frontend...
-      - docker build -t $ECR_REGISTRY/kayo-frontend:latest ./apps/web
+      - echo Building Frontend with ALB URL baked in...
+      - docker build --build-arg NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL -t $ECR_REGISTRY/kayo-frontend:latest ./apps/web
   post_build:
     commands:
       - echo Pushing images to ECR...
       - docker push $ECR_REGISTRY/kayo-control-plane:latest
       - docker push $ECR_REGISTRY/kayo-assessment-engine:latest
       - docker push $ECR_REGISTRY/kayo-frontend:latest
-      - echo Build complete!
+      - echo Forcing ECS redeployment...
+      - aws ecs update-service --cluster kayo-cluster --service kayo-web --force-new-deployment --region $AWS_DEFAULT_REGION
+      - aws ecs update-service --cluster kayo-cluster --service kayo-api --force-new-deployment --region $AWS_DEFAULT_REGION
+      - echo Build and deploy complete!
