@@ -31,7 +31,9 @@ export default function ProjectsPage() {
       const token = localStorage.getItem('access_token')
       const baseUrl = (typeof window !== 'undefined' && !window.location.hostname.includes('localhost') ? window.location.origin : (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'))
       const resp = await fetch(`${baseUrl}/api/projects/`, { headers: { Authorization: `Bearer ${token}` } })
-      return resp.ok ? resp.json() : []
+      const data = resp.ok ? await resp.json() : []
+      // Filter out deleted projects
+      return data.filter((p: any) => p.status !== 'deleted')
     },
     refetchInterval: 3000,
   })
