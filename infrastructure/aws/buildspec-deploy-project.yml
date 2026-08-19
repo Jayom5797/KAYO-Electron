@@ -1,0 +1,394 @@
+version: 0.2
+
+# Environment variables passed per-build:
+#   PROJECT_ID       — short unique ID (8 chars)
+#   PROJECT_NAME     — human name
+#   REPO_URL         — https://github.com/owner/repo
+#   BRANCH           — main / master / etc
+#   PORT             — port the app listens on (default 3000)
+#   ENV_VARS_JSON    — JSON string of {KEY: VALUE} pairs for the container
+#   AWS_ACCOUNT_ID
+#   AWS_DEFAULT_REGION
+
+phases:
+  pre_build:
+    commands:
+      - echo "=== KAYO Project Deploy: $PROJECT_ID ($PROJECT_NAME) ==="
+      - echo "Repo: $REPO_URL @ $BRANCH"
+
+      # ECR login
+      - aws ecr get-login-password --region $AWS_DEFAULT_REGION | docker login --username AWS --password-stdin $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com
+
+      # Create ECR repo if it doesn't exist
+      - |
+        aws ecr describe-repositories --repository-names kayo-project-$PROJECT_ID --region $AWS_DEFAULT_REGION 2>/dev/null || \
+        aws ecr create-repository --repository-name kayo-project-$PROJECT_ID --region $AWS_DEFAULT_REGION --image-scanning-configuration scanOnPush=true
+      - ECR_URI=$AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/kayo-project-$PROJECT_ID
+
+      # Clone repo
+      - git clone --depth 1 --branch $BRANCH $REPO_URL repo
+      - cd repo
+
+  build:
+    commands:
+      - cd repo
+
+      # ── Auto-detect stack and generate Dockerfile if missing ─────────────────
+      - |
+        if [ -f Dockerfile ]; then
+          echo "Found existing Dockerfile"
+        elif [ -f package.json ]; then
+          echo "Detected Node.js project — generating Dockerfile"
+          # Detect if it's Next.js
+          if grep -q '"next"' package.json 2>/dev/null; then
+            echo "Next.js detected"
+            cat > Dockerfile << 'DOCKERFILE'
+FROM public.ecr.aws/docker/library/node:20-alpine AS builder
+WORKDIR /app
+COPY package*.json ./
+RUN npm install --legacy-peer-deps
+COPY . .
+RUN mkdir -p public
+ENV NEXT_TELEMETRY_DISABLED=1
+RUN npm run build || npm run build --if-present
+FROM public.ecr.aws/docker/library/node:20-alpine AS runner
+WORKDIR /app
+ENV NODE_ENV=production
+RUN addgroup --system --gid 1001 nodejs && adduser --system --uid 1001 nextjs
+COPY --from=builder /app/.next/standalone ./
+COPY --from=builder /app/.next/static ./.next/static
+COPY --from=builder /app/public ./public 2>/dev/null || true
+USER nextjs
+EXPOSE 3000
+ENV PORT=3000
+ENV HOSTNAME="0.0.0.0"
+CMD ["node", "server.js"]
+DOCKERFILE
+          else
+            # Generic Node.js (Express etc.)
+            START_CMD=$(node -e "const p=require('./package.json'); console.log(p.scripts && p.scripts.start ? 'npm start' : p.main ? 'node ' + p.main : 'node index.js')" 2>/dev/null || echo "node index.js")
+            cat > Dockerfile << DOCKERFILE
+FROM public.ecr.aws/docker/library/node:20-alpine
+WORKDIR /app
+COPY package*.json ./
+RUN npm install --production --legacy-peer-deps
+COPY . .
+EXPOSE ${PORT:-3000}
+CMD $START_CMD
+DOCKERFILE
+          fi
+        elif [ -f requirements.txt ] || [ -f pyproject.toml ]; then
+          echo "Detected Python project — generating Dockerfile"
+          # Detect framework
+          if grep -qi "fastapi\|uvicorn" requirements.txt 2>/dev/null; then
+            MAIN_FILE=$(find . -name "main.py" -not -path "*/.*" | head -1 | sed 's|./||' | sed 's|.py||' | sed 's|/|.|g')
+            MAIN_FILE=${MAIN_FILE:-main}
+            cat > Dockerfile << DOCKERFILE
+FROM public.ecr.aws/docker/library/python:3.12-slim
+WORKDIR /app
+RUN apt-get update && apt-get install -y gcc && rm -rf /var/lib/apt/lists/*
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+COPY . .
+EXPOSE ${PORT:-8000}
+CMD ["uvicorn", "${MAIN_FILE}:app", "--host", "0.0.0.0", "--port", "${PORT:-8000}"]
+DOCKERFILE
+          elif grep -qi "django" requirements.txt 2>/dev/null; then
+            cat > Dockerfile << DOCKERFILE
+FROM public.ecr.aws/docker/library/python:3.12-slim
+WORKDIR /app
+RUN apt-get update && apt-get install -y gcc && rm -rf /var/lib/apt/lists/*
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+COPY . .
+EXPOSE ${PORT:-8000}
+CMD ["python", "manage.py", "runserver", "0.0.0.0:${PORT:-8000}"]
+DOCKERFILE
+          else
+            cat > Dockerfile << DOCKERFILE
+FROM public.ecr.aws/docker/library/python:3.12-slim
+WORKDIR /app
+COPY requirements*.txt ./
+RUN pip install --no-cache-dir -r requirements.txt 2>/dev/null || true
+COPY . .
+EXPOSE ${PORT:-8000}
+CMD ["python", "app.py"]
+DOCKERFILE
+          fi
+        elif [ -f go.mod ]; then
+          echo "Detected Go project"
+          cat > Dockerfile << DOCKERFILE
+FROM public.ecr.aws/docker/library/golang:1.22-alpine AS builder
+WORKDIR /app
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+RUN CGO_ENABLED=0 go build -o server .
+FROM public.ecr.aws/docker/library/alpine:latest
+WORKDIR /app
+COPY --from=builder /app/server .
+EXPOSE ${PORT:-8080}
+CMD ["./server"]
+DOCKERFILE
+        else
+          echo "ERROR: Cannot detect project type. Add a Dockerfile to your repo."
+          exit 1
+        fi
+
+      # Build and push image
+      - IMAGE_TAG=$PROJECT_ID-$(echo $CODEBUILD_RESOLVED_SOURCE_VERSION | head -c 8 2>/dev/null || echo "latest")
+      - docker build -t $ECR_URI:$IMAGE_TAG -t $ECR_URI:latest .
+      - docker push $ECR_URI:$IMAGE_TAG
+      - docker push $ECR_URI:latest
+      - echo "IMAGE_URI=$ECR_URI:$IMAGE_TAG" > /tmp/image_uri.txt
+      - cat /tmp/image_uri.txt
+
+  post_build:
+    commands:
+      - IMAGE_URI=$(cat /tmp/image_uri.txt | cut -d= -f2)
+      - echo "Image built and pushed: $IMAGE_URI"
+
+      # Download project CloudFormation template
+      - |
+        cat > /tmp/project-stack.yaml << 'CFTEMPLATE'
+AWSTemplateFormatVersion: '2010-09-09'
+Parameters:
+  ProjectId:
+    Type: String
+  ProjectName:
+    Type: String
+  ImageUri:
+    Type: String
+  ContainerPort:
+    Type: Number
+    Default: 3000
+  EnvVarsJson:
+    Type: String
+    Default: '{}'
+
+Resources:
+  ProjectVPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.1.0.0/16
+      EnableDnsHostnames: true
+      EnableDnsSupport: true
+      Tags: [{Key: Name, Value: !Sub 'kayo-proj-${ProjectId}'}]
+
+  IGW:
+    Type: AWS::EC2::InternetGateway
+
+  IGWAttach:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref ProjectVPC
+      InternetGatewayId: !Ref IGW
+
+  SubnetA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref ProjectVPC
+      CidrBlock: 10.1.1.0/24
+      AvailabilityZone: !Select [0, !GetAZs '']
+      MapPublicIpOnLaunch: true
+
+  SubnetB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref ProjectVPC
+      CidrBlock: 10.1.2.0/24
+      AvailabilityZone: !Select [1, !GetAZs '']
+      MapPublicIpOnLaunch: true
+
+  RouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref ProjectVPC
+
+  Route:
+    Type: AWS::EC2::Route
+    DependsOn: IGWAttach
+    Properties:
+      RouteTableId: !Ref RouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref IGW
+
+  SubnetAAssoc:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref SubnetA
+      RouteTableId: !Ref RouteTable
+
+  SubnetBAssoc:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref SubnetB
+      RouteTableId: !Ref RouteTable
+
+  ALBSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: ALB SG
+      VpcId: !Ref ProjectVPC
+      SecurityGroupIngress:
+        - {IpProtocol: tcp, FromPort: 80, ToPort: 80, CidrIp: 0.0.0.0/0}
+
+  AppSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: App SG
+      VpcId: !Ref ProjectVPC
+      SecurityGroupIngress:
+        - {IpProtocol: tcp, FromPort: !Ref ContainerPort, ToPort: !Ref ContainerPort, SourceSecurityGroupId: !Ref ALBSecurityGroup}
+
+  ExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub 'kayo-proj-${ProjectId}-exec'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - {Effect: Allow, Principal: {Service: ecs-tasks.amazonaws.com}, Action: 'sts:AssumeRole'}
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+
+  Cluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: !Sub 'kayo-proj-${ProjectId}'
+
+  LogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/ecs/kayo-proj-${ProjectId}'
+      RetentionInDays: 7
+
+  TaskDef:
+    Type: AWS::ECS::TaskDefinition
+    DependsOn: LogGroup
+    Properties:
+      Family: !Sub 'kayo-proj-${ProjectId}'
+      Cpu: '256'
+      Memory: '512'
+      NetworkMode: awsvpc
+      RequiresCompatibilities: [FARGATE]
+      ExecutionRoleArn: !GetAtt ExecutionRole.Arn
+      ContainerDefinitions:
+        - Name: app
+          Image: !Ref ImageUri
+          PortMappings:
+            - ContainerPort: !Ref ContainerPort
+          Essential: true
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Sub '/ecs/kayo-proj-${ProjectId}'
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: ecs
+
+  ALB:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: !Sub 'kayo-p-${ProjectId}'
+      Subnets: [!Ref SubnetA, !Ref SubnetB]
+      SecurityGroups: [!Ref ALBSecurityGroup]
+      Type: application
+
+  TargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: !Sub 'kayo-p-${ProjectId}-tg'
+      VpcId: !Ref ProjectVPC
+      Port: !Ref ContainerPort
+      Protocol: HTTP
+      TargetType: ip
+      HealthCheckPath: /
+      HealthCheckIntervalSeconds: 30
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 10
+
+  Listener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref ALB
+      Port: 80
+      Protocol: HTTP
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref TargetGroup
+
+  Service:
+    Type: AWS::ECS::Service
+    DependsOn: Listener
+    Properties:
+      ServiceName: !Sub 'kayo-proj-${ProjectId}'
+      Cluster: !Ref Cluster
+      TaskDefinition: !Ref TaskDef
+      DesiredCount: 1
+      LaunchType: FARGATE
+      HealthCheckGracePeriodSeconds: 120
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: ENABLED
+          Subnets: [!Ref SubnetA, !Ref SubnetB]
+          SecurityGroups: [!Ref AppSecurityGroup]
+      LoadBalancers:
+        - ContainerName: app
+          ContainerPort: !Ref ContainerPort
+          TargetGroupArn: !Ref TargetGroup
+
+Outputs:
+  AppURL:
+    Description: Application URL
+    Value: !Sub 'http://${ALB.DNSName}'
+  ALBDnsName:
+    Description: ALB DNS Name
+    Value: !GetAtt ALB.DNSName
+CFTEMPLATE
+
+      # Deploy or update the CloudFormation stack
+      - STACK_NAME=kayo-project-$PROJECT_ID
+      - PORT_NUM=${PORT:-3000}
+      - |
+        if aws cloudformation describe-stacks --stack-name $STACK_NAME --region $AWS_DEFAULT_REGION 2>/dev/null; then
+          echo "Updating existing stack..."
+          aws cloudformation update-stack \
+            --stack-name $STACK_NAME \
+            --template-body file:///tmp/project-stack.yaml \
+            --capabilities CAPABILITY_NAMED_IAM \
+            --parameters \
+              ParameterKey=ProjectId,ParameterValue=$PROJECT_ID \
+              ParameterKey=ProjectName,ParameterValue="$PROJECT_NAME" \
+              ParameterKey=ImageUri,ParameterValue=$IMAGE_URI \
+              ParameterKey=ContainerPort,ParameterValue=$PORT_NUM \
+            --region $AWS_DEFAULT_REGION 2>&1 || echo "No changes to deploy"
+        else
+          echo "Creating new stack..."
+          aws cloudformation create-stack \
+            --stack-name $STACK_NAME \
+            --template-body file:///tmp/project-stack.yaml \
+            --capabilities CAPABILITY_NAMED_IAM \
+            --parameters \
+              ParameterKey=ProjectId,ParameterValue=$PROJECT_ID \
+              ParameterKey=ProjectName,ParameterValue="$PROJECT_NAME" \
+              ParameterKey=ImageUri,ParameterValue=$IMAGE_URI \
+              ParameterKey=ContainerPort,ParameterValue=$PORT_NUM \
+            --region $AWS_DEFAULT_REGION
+        fi
+
+      # Wait for stack to complete
+      - echo "Waiting for stack to complete (up to 15 minutes)..."
+      - |
+        aws cloudformation wait stack-create-complete --stack-name $STACK_NAME --region $AWS_DEFAULT_REGION 2>/dev/null || \
+        aws cloudformation wait stack-update-complete --stack-name $STACK_NAME --region $AWS_DEFAULT_REGION 2>/dev/null || true
+
+      # Get the app URL and write it out for the control plane to read
+      - APP_URL=$(aws cloudformation describe-stacks --stack-name $STACK_NAME --region $AWS_DEFAULT_REGION --query "Stacks[0].Outputs[?OutputKey=='AppURL'].OutputValue" --output text)
+      - echo "APP_URL=$APP_URL"
+      - echo "{\"status\":\"success\",\"app_url\":\"$APP_URL\",\"stack\":\"$STACK_NAME\",\"image\":\"$IMAGE_URI\"}" > /tmp/deploy_result.json
+      - cat /tmp/deploy_result.json
+
+artifacts:
+  files:
+    - /tmp/deploy_result.json
+  discard-paths: yes

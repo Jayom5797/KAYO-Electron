@@ -54,6 +54,11 @@ class Settings(BaseSettings):
     assessment_engine_url: str = "http://localhost:3100"
     monitor_service_url: str = "http://localhost:8002"
     service_token: str = "kayo-internal-service-token"
+
+    # AWS — used for project deployments via CodeBuild
+    aws_region: str = "us-east-1"
+    aws_account_id: str = "700640308663"
+    codebuild_deploy_project: str = "kayo-deploy-project"
     
     class Config:
         env_file = ".env"

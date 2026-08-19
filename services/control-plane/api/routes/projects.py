@@ -279,17 +279,225 @@ async def delete_project(
 
 async def _run_deployment_pipeline(project_id: str, tenant_id: str):
     """
-    Complete autonomous deployment pipeline.
-    Each stage updates the project state so the UI can track progress.
+    Full deployment pipeline using AWS CodeBuild.
+    Stages: Validate → Assess → Gate → Build+Deploy (CodeBuild) → Active
     """
     from security_gate import evaluate_gate, DEFAULT_POLICY, GateDecision
     from sqlalchemy import create_engine as _create_engine
     from sqlalchemy.orm import sessionmaker as _sessionmaker
     from config import settings as _settings
+    import boto3, json, asyncio, os
 
-    # Build a dedicated DB session for this background task
     _engine = _create_engine(_settings.database_url)
     _Session = _sessionmaker(bind=_engine)
+
+    def _db_get() -> dict | None:
+        db = _Session()
+        try:
+            row = db.query(Project).filter(Project.project_id == project_id).first()
+            return row.to_dict() if row else None
+        finally:
+            db.close()
+
+    def _db_update(**kwargs):
+        db = _Session()
+        try:
+            row = db.query(Project).filter(Project.project_id == project_id).first()
+            if row:
+                for k, v in kwargs.items():
+                    if hasattr(row, k):
+                        setattr(row, k, v)
+                db.commit()
+        finally:
+            db.close()
+
+    project = _db_get()
+    if not project:
+        return
+
+    try:
+        # ── Stage 1: Validate ─────────────────────────────────────────────────
+        _db_update(status=DeploymentState.VALIDATING.value)
+        logger.info(f"[{project_id}] Validating: {project['source_url']}")
+
+        # Basic GitHub URL check
+        source_url = project["source_url"]
+        if not source_url.startswith("https://github.com/"):
+            _db_update(status=DeploymentState.FAILED.value,
+                       error="Only public GitHub repos are supported (https://github.com/owner/repo)")
+            return
+
+        # ── Stage 2: Security Assessment ─────────────────────────────────────
+        _db_update(status=DeploymentState.ASSESSING.value)
+        logger.info(f"[{project_id}] Running security assessment...")
+
+        from services.assessment_client import AssessmentClient
+        client = AssessmentClient()
+        scan_id = None
+        try:
+            scan_result = await client.assess_repository(
+                url=source_url,
+                tenant_id=tenant_id,
+            )
+            scan_id = scan_result.get("scan_id")
+            if scan_id:
+                final = await client.poll_until_complete(scan_id, max_attempts=60)
+                _db_update(
+                    security_posture=final.get("posture", {}).get("rating") if final.get("posture") else None,
+                    posture_score=final.get("posture", {}).get("score") if final.get("posture") else None,
+                )
+        except Exception as e:
+            logger.warning(f"[{project_id}] Assessment unavailable: {e}")
+            # Fail-closed: block if assessment unavailable
+            _db_update(status=DeploymentState.GATE_BLOCKED.value, gate_result="blocked",
+                       error="Security assessment unavailable — deployment blocked")
+            return
+
+        # ── Stage 3: Security Gate ────────────────────────────────────────────
+        findings = []
+        if scan_id:
+            try:
+                findings_data = await client.get_findings(scan_id)
+                findings = [{"severity": f.get("severity"), "type": f.get("type"),
+                             "category": f.get("category")} for f in findings_data]
+            except Exception:
+                pass
+
+        gate_result = evaluate_gate(findings, DEFAULT_POLICY)
+        _db_update(gate_result=gate_result.decision.value)
+
+        if not gate_result.passed:
+            _db_update(status=DeploymentState.GATE_BLOCKED.value, error=gate_result.reason)
+            logger.info(f"[{project_id}] Gate BLOCKED: {gate_result.reason}")
+            return
+
+        logger.info(f"[{project_id}] Gate PASSED")
+
+        # ── Stage 4: Build + Deploy via CodeBuild ─────────────────────────────
+        _db_update(status=DeploymentState.BUILDING.value)
+        logger.info(f"[{project_id}] Triggering CodeBuild deployment...")
+
+        branch = project.get("branch", "main")
+        port = project.get("env_vars", {}).get("PORT", "3000") if project.get("env_vars") else "3000"
+
+        cb = boto3.client("codebuild", region_name=_settings.aws_region)
+
+        # Read the buildspec from the repo in the infrastructure folder
+        with open(os.path.join(os.path.dirname(__file__),
+                               "../../../../infrastructure/aws/buildspec-deploy-project.yml")) as f:
+            buildspec_content = f.read()
+
+        build = cb.start_build(
+            projectName=_settings.codebuild_deploy_project,
+            buildspecOverride=buildspec_content,
+            sourceTypeOverride="NO_SOURCE",
+            environmentVariablesOverride=[
+                {"name": "PROJECT_ID",    "value": project_id,               "type": "PLAINTEXT"},
+                {"name": "PROJECT_NAME",  "value": project["name"],          "type": "PLAINTEXT"},
+                {"name": "REPO_URL",      "value": source_url,               "type": "PLAINTEXT"},
+                {"name": "BRANCH",        "value": branch,                   "type": "PLAINTEXT"},
+                {"name": "PORT",          "value": port,                     "type": "PLAINTEXT"},
+                {"name": "AWS_ACCOUNT_ID","value": _settings.aws_account_id, "type": "PLAINTEXT"},
+                {"name": "AWS_DEFAULT_REGION", "value": _settings.aws_region,"type": "PLAINTEXT"},
+            ],
+        )
+        build_id = build["build"]["id"]
+        logger.info(f"[{project_id}] CodeBuild started: {build_id}")
+        _db_update(aws_stack=f"kayo-project-{project_id}")
+
+        # ── Poll CodeBuild until complete ─────────────────────────────────────
+        _db_update(status=DeploymentState.PROVISIONING.value)
+        for attempt in range(120):  # up to 20 minutes
+            await asyncio.sleep(10)
+            resp = cb.batch_get_builds(ids=[build_id])
+            build_status = resp["builds"][0]["buildStatus"]
+            current_phase = resp["builds"][0].get("currentPhase", "")
+            logger.info(f"[{project_id}] CodeBuild phase={current_phase} status={build_status}")
+
+            # Update UI status based on CodeBuild phase
+            if current_phase == "BUILD":
+                _db_update(status=DeploymentState.BUILDING.value)
+            elif current_phase == "POST_BUILD":
+                _db_update(status=DeploymentState.DEPLOYING.value)
+
+            if build_status == "SUCCEEDED":
+                break
+            elif build_status in ("FAILED", "FAULT", "TIMED_OUT", "STOPPED"):
+                # Get last log line for error detail
+                try:
+                    logs = boto3.client("logs", region_name=_settings.aws_region)
+                    log_stream = resp["builds"][0].get("logs", {}).get("streamName", "")
+                    if log_stream:
+                        events = logs.get_log_events(
+                            logGroupName="/aws/codebuild/kayo-deploy-project",
+                            logStreamName=log_stream,
+                            limit=20,
+                        )
+                        last_lines = [e["message"] for e in events.get("events", [])
+                                      if "error" in e["message"].lower() or "ERROR" in e["message"]]
+                        error_detail = last_lines[-1] if last_lines else f"Build {build_status}"
+                    else:
+                        error_detail = f"Build {build_status}"
+                except Exception:
+                    error_detail = f"Build {build_status}"
+                _db_update(status=DeploymentState.FAILED.value, error=error_detail)
+                return
+        else:
+            _db_update(status=DeploymentState.FAILED.value, error="Deployment timed out after 20 minutes")
+            return
+
+        # ── Get the live URL from CloudFormation outputs ──────────────────────
+        _db_update(status=DeploymentState.HEALTH_CHECK.value)
+        try:
+            cf = boto3.client("cloudformation", region_name=_settings.aws_region)
+            stack = cf.describe_stacks(StackName=f"kayo-project-{project_id}")
+            outputs = stack["Stacks"][0].get("Outputs", [])
+            app_url = next((o["OutputValue"] for o in outputs if o["OutputKey"] == "AppURL"), None)
+            if app_url:
+                _db_update(endpoint=app_url)
+                logger.info(f"[{project_id}] Live at: {app_url}")
+        except Exception as e:
+            logger.warning(f"[{project_id}] Could not get endpoint: {e}")
+
+        _db_update(status=DeploymentState.ACTIVE.value, deployed_at=datetime.utcnow(), error=None)
+        logger.info(f"[{project_id}] Deployment COMPLETE")
+
+    except Exception as e:
+        _db_update(status=DeploymentState.FAILED.value, error=str(e))
+        logger.error(f"[{project_id}] Pipeline failed: {e}", exc_info=True)
+
+
+async def _delete_project_infrastructure(project_id: str):
+    """Delete project AWS infrastructure (CloudFormation stack + ECR repo)."""
+    from sqlalchemy import create_engine as _ce
+    from sqlalchemy.orm import sessionmaker as _sm
+    from config import settings as _s
+    import boto3
+
+    _engine = _ce(_s.database_url)
+    _Session = _sm(bind=_engine)
+
+    def _db_update_del(**kwargs):
+        db = _Session()
+        try:
+            row = db.query(Project).filter(Project.project_id == project_id).first()
+            if row:
+                for k, v in kwargs.items():
+                    if hasattr(row, k):
+                        setattr(row, k, v)
+                db.commit()
+        finally:
+            db.close()
+
+    try:
+        cf = boto3.client("cloudformation", region_name=_s.aws_region)
+        stack_name = f"kayo-project-{project_id}"
+        cf.delete_stack(StackName=stack_name)
+        logger.info(f"[{project_id}] Stack deletion initiated: {stack_name}")
+        _db_update_del(status=DeploymentState.DELETED.value)
+    except Exception as e:
+        logger.warning(f"[{project_id}] Stack deletion failed: {e}")
+        _db_update_del(status=DeploymentState.DELETED.value)
 
     def _db_get() -> dict | None:
         db = _Session()
