@@ -3,11 +3,6 @@ version: 0.2
 env:
   variables:
     AWS_DEFAULT_REGION: "us-east-1"
-    ECR_REPO_NAME: "kayo-projects"
-    ECS_CLUSTER: "kayo-cluster"
-    SUBNET_1: "subnet-0a6affb79f47552c2"
-    SUBNET_2: "subnet-0323dc75ba3acba19"
-    SECURITY_GROUP: "sg-09d681f4f2140edcb"
 
 phases:
   install:
@@ -16,82 +11,47 @@ phases:
 
   pre_build:
     commands:
-      - ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-      - ECR_URI=$ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$ECR_REPO_NAME
-      - aws ecr get-login-password --region $AWS_DEFAULT_REGION | docker login --username AWS --password-stdin $ECR_URI
-      - aws ecr describe-repositories --repository-names $ECR_REPO_NAME --region $AWS_DEFAULT_REGION 2>/dev/null || aws ecr create-repository --repository-name $ECR_REPO_NAME --region $AWS_DEFAULT_REGION
+      - echo "Cloning $REPO_URL..."
       - git clone $REPO_URL /tmp/repo
+      - cd /tmp/repo
 
   build:
     commands:
       - cd /tmp/repo
-      - ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-      - ECR_URI=$ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$ECR_REPO_NAME
-      - IMAGE_TAG=$PROJECT_ID
+      - BUCKET_NAME=kayo-proj-$PROJECT_ID
+      - echo "Building project..."
       - |
-        if [ ! -f Dockerfile ] && [ -f package.json ]; then
-          HAS_START=$(node -e "const p=require('./package.json'); console.log(p.scripts&&p.scripts.start?'yes':'no')" 2>/dev/null || echo "no")
-          HAS_BUILD=$(node -e "const p=require('./package.json'); console.log(p.scripts&&p.scripts.build?'yes':'no')" 2>/dev/null || echo "no")
-          if [ "$HAS_START" = "yes" ]; then
-            printf 'FROM node:18-alpine\nWORKDIR /app\nCOPY package*.json ./\nRUN npm install\nCOPY . .\nEXPOSE 3000\nCMD ["npm","start"]\n' > Dockerfile
-          elif [ "$HAS_BUILD" = "yes" ]; then
-            printf 'FROM node:18-alpine AS builder\nWORKDIR /app\nCOPY package*.json ./\nRUN npm install\nCOPY . .\nRUN npm run build\nFROM nginx:alpine\nCOPY --from=builder /app/build /usr/share/nginx/html\nCOPY --from=builder /app/dist /usr/share/nginx/html 2>/dev/null || true\nEXPOSE 80\nCMD ["nginx","-g","daemon off;"]\n' > Dockerfile
-            PORT_NUM=80
-          else
-            printf 'FROM nginx:alpine\nCOPY . /usr/share/nginx/html\nEXPOSE 80\nCMD ["nginx","-g","daemon off;"]\n' > Dockerfile
-            PORT_NUM=80
+        if [ -f package.json ]; then
+          npm install
+          npm run build 2>/dev/null || true
+          if [ -d build ]; then BUILD_DIR=build
+          elif [ -d dist ]; then BUILD_DIR=dist
+          elif [ -d out ]; then BUILD_DIR=out
+          elif [ -d public ]; then BUILD_DIR=public
+          else BUILD_DIR=.
           fi
+        elif [ -f requirements.txt ]; then
+          BUILD_DIR=.
+        else
+          BUILD_DIR=.
         fi
-      - if [ ! -f Dockerfile ] && [ -f requirements.txt ]; then MAIN=$(ls app.py main.py server.py run.py 2>/dev/null | head -1); printf "FROM python:3.11-slim\nWORKDIR /app\nCOPY requirements.txt .\nRUN pip install -r requirements.txt\nCOPY . .\nEXPOSE 8000\nCMD [\"python\",\"$MAIN\"]\n" > Dockerfile; fi
-      - if [ ! -f Dockerfile ]; then printf 'FROM nginx:alpine\nCOPY . /usr/share/nginx/html\nEXPOSE 80\nCMD ["nginx","-g","daemon off;"]\n' > Dockerfile; PORT_NUM=80; fi
-      - docker build -t $ECR_URI:$IMAGE_TAG .
-      - docker push $ECR_URI:$IMAGE_TAG
-      - echo "IMAGE_URI=$ECR_URI:$IMAGE_TAG" > /tmp/image_uri.txt
+        echo "BUILD_DIR=$BUILD_DIR" > /tmp/build_dir.txt
+      - echo "Build complete"
 
   post_build:
     commands:
-      - IMAGE_URI=$(cat /tmp/image_uri.txt | cut -d= -f2)
-      - PORT_NUM=${PORT:-3000}
-      - FAMILY=kayo-proj-$PROJECT_ID
-      - LOG_GROUP=/ecs/$FAMILY
-      - SVC_NAME=kayo-proj-$PROJECT_ID
-      - aws logs create-log-group --log-group-name $LOG_GROUP --region $AWS_DEFAULT_REGION 2>/dev/null || true
-      - ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-      - EXEC_ROLE=arn:aws:iam::${ACCOUNT_ID}:role/kayo-ecs-execution-role
-      - |
-        python3 -c "
-import json, os
-defn = [{
-  'name': 'app',
-  'image': os.environ['IMAGE_URI'],
-  'portMappings': [{'containerPort': int(os.environ.get('PORT_NUM','3000')), 'protocol': 'tcp'}],
-  'essential': True,
-  'logConfiguration': {
-    'logDriver': 'awslogs',
-    'options': {
-      'awslogs-group': os.environ['LOG_GROUP'],
-      'awslogs-region': os.environ['AWS_DEFAULT_REGION'],
-      'awslogs-stream-prefix': 'ecs'
-    }
-  }
-}]
-print(json.dumps(defn))
-" > /tmp/container_def.json
-      - aws ecs register-task-definition --family $FAMILY --network-mode awsvpc --requires-compatibilities FARGATE --cpu 256 --memory 512 --execution-role-arn $EXEC_ROLE --container-definitions file:///tmp/container_def.json --region $AWS_DEFAULT_REGION > /tmp/taskdef.json
-      - TASK_DEF=$(python3 -c "import json; print(json.load(open('/tmp/taskdef.json'))['taskDefinition']['taskDefinitionArn'])")
-      - echo "Task def registered $TASK_DEF"
-      - SVC_EXISTS=$(aws ecs describe-services --cluster $ECS_CLUSTER --services $SVC_NAME --region $AWS_DEFAULT_REGION --query "services[?status=='ACTIVE'].serviceName" --output text 2>/dev/null || echo "")
-      - |
-        if echo "$SVC_EXISTS" | grep -q "$SVC_NAME"; then
-          echo "Updating service..."
-          aws ecs update-service --cluster $ECS_CLUSTER --service $SVC_NAME --task-definition $TASK_DEF --force-new-deployment --region $AWS_DEFAULT_REGION
-        else
-          echo "Creating service..."
-          aws ecs create-service --cluster $ECS_CLUSTER --service-name $SVC_NAME --task-definition $TASK_DEF --desired-count 1 --launch-type FARGATE --network-configuration "awsvpcConfiguration={subnets=[$SUBNET_1,$SUBNET_2],securityGroups=[$SECURITY_GROUP],assignPublicIp=ENABLED}" --region $AWS_DEFAULT_REGION
-        fi
-      - aws ecs wait services-stable --cluster $ECS_CLUSTER --services $SVC_NAME --region $AWS_DEFAULT_REGION
-      - TASK_ARN=$(aws ecs list-tasks --cluster $ECS_CLUSTER --service-name $SVC_NAME --region $AWS_DEFAULT_REGION --query "taskArns[0]" --output text)
-      - ENI=$(aws ecs describe-tasks --cluster $ECS_CLUSTER --tasks $TASK_ARN --region $AWS_DEFAULT_REGION --query "tasks[0].attachments[0].details[?name=='networkInterfaceId'].value" --output text)
-      - PUBLIC_IP=$(aws ec2 describe-network-interfaces --network-interface-ids $ENI --region $AWS_DEFAULT_REGION --query "NetworkInterfaces[0].Association.PublicIp" --output text)
-      - echo "APP_URL=http://$PUBLIC_IP:$PORT_NUM"
-      - if [ -n "$CALLBACK_URL" ] && [ -n "$PUBLIC_IP" ]; then curl -s -X POST "$CALLBACK_URL" -H "Content-Type:application/json" -d "{\"status\":\"active\",\"app_url\":\"http://$PUBLIC_IP:$PORT_NUM\"}" || true; fi
+      - BUILD_DIR=$(cat /tmp/build_dir.txt | cut -d= -f2)
+      - BUCKET_NAME=kayo-proj-$PROJECT_ID
+      - cd /tmp/repo
+      - echo "Creating S3 bucket $BUCKET_NAME..."
+      - aws s3 mb s3://$BUCKET_NAME --region $AWS_DEFAULT_REGION 2>/dev/null || true
+      - aws s3api put-bucket-ownership-controls --bucket $BUCKET_NAME --ownership-controls Rules=[{ObjectOwnership=BucketOwnerPreferred}] --region $AWS_DEFAULT_REGION 2>/dev/null || true
+      - aws s3api put-public-access-block --bucket $BUCKET_NAME --public-access-block-configuration BlockPublicAcls=false,IgnorePublicAcls=false,BlockPublicPolicy=false,RestrictPublicBuckets=false --region $AWS_DEFAULT_REGION
+      - aws s3api put-bucket-website --bucket $BUCKET_NAME --website-configuration '{"IndexDocument":{"Suffix":"index.html"},"ErrorDocument":{"Key":"index.html"}}' --region $AWS_DEFAULT_REGION
+      - python3 -c "import json; print(json.dumps({'Version':'2012-10-17','Statement':[{'Sid':'PublicRead','Effect':'Allow','Principal':'*','Action':'s3:GetObject','Resource':'arn:aws:s3:::BUCKET/*'}]}).replace('BUCKET','$BUCKET_NAME'))" > /tmp/policy.json
+      - aws s3api put-bucket-policy --bucket $BUCKET_NAME --policy file:///tmp/policy.json --region $AWS_DEFAULT_REGION
+      - echo "Uploading files from $BUILD_DIR..."
+      - aws s3 sync $BUILD_DIR s3://$BUCKET_NAME --delete --region $AWS_DEFAULT_REGION
+      - APP_URL=http://$BUCKET_NAME.s3-website-$AWS_DEFAULT_REGION.amazonaws.com
+      - echo "Deployed to $APP_URL"
+      - if [ -n "$CALLBACK_URL" ] && [ -n "$APP_URL" ]; then curl -s -X POST "$CALLBACK_URL" -H "Content-Type:application/json" -d "{\"status\":\"active\",\"app_url\":\"$APP_URL\"}" || true; fi
