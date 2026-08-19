@@ -13,53 +13,22 @@ phases:
 
   pre_build:
     commands:
-      - echo "Logging in to Amazon ECR..."
       - ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
       - ECR_URI=$ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$ECR_REPO_NAME
       - aws ecr get-login-password --region $AWS_DEFAULT_REGION | docker login --username AWS --password-stdin $ECR_URI
       - aws ecr describe-repositories --repository-names $ECR_REPO_NAME --region $AWS_DEFAULT_REGION 2>/dev/null || aws ecr create-repository --repository-name $ECR_REPO_NAME --region $AWS_DEFAULT_REGION
-      - echo "Cloning repo $REPO_URL..."
       - git clone $REPO_URL /tmp/repo
       - cd /tmp/repo
 
   build:
     commands:
       - cd /tmp/repo
+      - ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+      - ECR_URI=$ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$ECR_REPO_NAME
       - IMAGE_TAG=$PROJECT_ID
-      - ECR_URI=$(aws sts get-caller-identity --query Account --output text).dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$ECR_REPO_NAME
-      - |
-        if [ ! -f Dockerfile ]; then
-          echo "No Dockerfile found, generating one..."
-          if [ -f package.json ]; then
-            cat > Dockerfile << 'EOF'
-FROM node:18-alpine
-WORKDIR /app
-COPY package*.json ./
-RUN npm install --production
-COPY . .
-RUN npm run build 2>/dev/null || true
-EXPOSE 3000
-CMD ["npm", "start"]
-EOF
-          elif [ -f requirements.txt ]; then
-            cat > Dockerfile << 'EOF'
-FROM python:3.11-slim
-WORKDIR /app
-COPY requirements.txt .
-RUN pip install -r requirements.txt
-COPY . .
-EXPOSE 8000
-CMD ["python", "app.py"]
-EOF
-          else
-            cat > Dockerfile << 'EOF'
-FROM nginx:alpine
-COPY . /usr/share/nginx/html
-EXPOSE 80
-CMD ["nginx", "-g", "daemon off;"]
-EOF
-          fi
-        fi
+      - if [ ! -f Dockerfile ] && [ -f package.json ]; then printf 'FROM node:18-alpine\nWORKDIR /app\nCOPY package*.json ./\nRUN npm install --production\nCOPY . .\nRUN npm run build 2>/dev/null || true\nEXPOSE 3000\nCMD ["npm","start"]\n' > Dockerfile; fi
+      - if [ ! -f Dockerfile ] && [ -f requirements.txt ]; then printf 'FROM python:3.11-slim\nWORKDIR /app\nCOPY requirements.txt .\nRUN pip install -r requirements.txt\nCOPY . .\nEXPOSE 8000\nCMD ["python","app.py"]\n' > Dockerfile; fi
+      - if [ ! -f Dockerfile ]; then printf 'FROM nginx:alpine\nCOPY . /usr/share/nginx/html\nEXPOSE 80\nCMD ["nginx","-g","daemon off;"]\n' > Dockerfile; fi
       - docker build -t $ECR_URI:$IMAGE_TAG .
       - docker push $ECR_URI:$IMAGE_TAG
       - echo "IMAGE_URI=$ECR_URI:$IMAGE_TAG" > /tmp/image_uri.txt
@@ -67,44 +36,14 @@ EOF
   post_build:
     commands:
       - IMAGE_URI=$(cat /tmp/image_uri.txt | cut -d= -f2)
-      - echo "Image built and pushed: $IMAGE_URI"
+      - echo "Deploying $IMAGE_URI"
       - STACK_NAME=kayo-project-$PROJECT_ID
       - PORT_NUM=${PORT:-3000}
       - TEMPLATE_URL=https://s3.amazonaws.com/kayo-artifacts-700640308663/cloudformation/project-stack-template.yaml
-      - |
-        if aws cloudformation describe-stacks --stack-name $STACK_NAME --region $AWS_DEFAULT_REGION 2>/dev/null; then
-          echo "Updating existing stack..."
-          aws cloudformation update-stack \
-            --stack-name $STACK_NAME \
-            --template-url $TEMPLATE_URL \
-            --capabilities CAPABILITY_NAMED_IAM \
-            --parameters \
-              ParameterKey=ProjectId,ParameterValue=$PROJECT_ID \
-              ParameterKey=ProjectName,ParameterValue="$PROJECT_NAME" \
-              ParameterKey=ImageUri,ParameterValue=$IMAGE_URI \
-              ParameterKey=ContainerPort,ParameterValue=$PORT_NUM \
-            --region $AWS_DEFAULT_REGION 2>&1 || echo "No changes to deploy"
-        else
-          echo "Creating new stack..."
-          aws cloudformation create-stack \
-            --stack-name $STACK_NAME \
-            --template-url $TEMPLATE_URL \
-            --capabilities CAPABILITY_NAMED_IAM \
-            --parameters \
-              ParameterKey=ProjectId,ParameterValue=$PROJECT_ID \
-              ParameterKey=ProjectName,ParameterValue="$PROJECT_NAME" \
-              ParameterKey=ImageUri,ParameterValue=$IMAGE_URI \
-              ParameterKey=ContainerPort,ParameterValue=$PORT_NUM \
-            --region $AWS_DEFAULT_REGION
-        fi
-      - echo "Waiting for stack to complete..."
+      - aws cloudformation describe-stacks --stack-name $STACK_NAME --region $AWS_DEFAULT_REGION 2>/dev/null && STACK_EXISTS=true || STACK_EXISTS=false
+      - if [ "$STACK_EXISTS" = "true" ]; then aws cloudformation update-stack --stack-name $STACK_NAME --template-url $TEMPLATE_URL --capabilities CAPABILITY_NAMED_IAM --parameters ParameterKey=ProjectId,ParameterValue=$PROJECT_ID ParameterKey=ProjectName,ParameterValue="$PROJECT_NAME" ParameterKey=ImageUri,ParameterValue=$IMAGE_URI ParameterKey=ContainerPort,ParameterValue=$PORT_NUM --region $AWS_DEFAULT_REGION 2>&1 || echo "No update needed"; fi
+      - if [ "$STACK_EXISTS" = "false" ]; then aws cloudformation create-stack --stack-name $STACK_NAME --template-url $TEMPLATE_URL --capabilities CAPABILITY_NAMED_IAM --parameters ParameterKey=ProjectId,ParameterValue=$PROJECT_ID ParameterKey=ProjectName,ParameterValue="$PROJECT_NAME" ParameterKey=ImageUri,ParameterValue=$IMAGE_URI ParameterKey=ContainerPort,ParameterValue=$PORT_NUM --region $AWS_DEFAULT_REGION; fi
       - aws cloudformation wait stack-create-complete --stack-name $STACK_NAME --region $AWS_DEFAULT_REGION 2>/dev/null || aws cloudformation wait stack-update-complete --stack-name $STACK_NAME --region $AWS_DEFAULT_REGION 2>/dev/null || true
       - APP_URL=$(aws cloudformation describe-stacks --stack-name $STACK_NAME --region $AWS_DEFAULT_REGION --query "Stacks[0].Outputs[?OutputKey=='AppURL'].OutputValue" --output text 2>/dev/null || echo "")
-      - echo "APP_URL=$APP_URL"
-      - |
-        if [ -n "$APP_URL" ] && [ -n "$CALLBACK_URL" ]; then
-          curl -s -X POST "$CALLBACK_URL" \
-            -H "Content-Type: application/json" \
-            -H "Authorization: Bearer $CALLBACK_TOKEN" \
-            -d "{\"project_id\":\"$PROJECT_ID\",\"status\":\"active\",\"app_url\":\"$APP_URL\"}" || true
-        fi
+      - echo "Deployed to $APP_URL"
+      - if [ -n "$APP_URL" ] && [ -n "$CALLBACK_URL" ]; then curl -s -X POST "$CALLBACK_URL" -H "Content-Type: application/json" -H "Authorization: Bearer $CALLBACK_TOKEN" -d "{\"project_id\":\"$PROJECT_ID\",\"status\":\"active\",\"app_url\":\"$APP_URL\"}" || true; fi
