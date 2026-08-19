@@ -4,11 +4,14 @@ env:
   variables:
     AWS_DEFAULT_REGION: "us-east-1"
     ECR_REPO_NAME: "kayo-projects"
+    ECS_CLUSTER: "kayo-cluster"
+    SUBNET_1: "subnet-0a6affb79f47552c2"
+    SUBNET_2: "subnet-0323dc75ba3acba19"
+    SECURITY_GROUP: "sg-09d681f4f2140edcb"
 
 phases:
   install:
     commands:
-      - echo "Installing dependencies..."
       - yum install -y git 2>/dev/null || apt-get install -y git 2>/dev/null || true
 
   pre_build:
@@ -18,7 +21,6 @@ phases:
       - aws ecr get-login-password --region $AWS_DEFAULT_REGION | docker login --username AWS --password-stdin $ECR_URI
       - aws ecr describe-repositories --repository-names $ECR_REPO_NAME --region $AWS_DEFAULT_REGION 2>/dev/null || aws ecr create-repository --repository-name $ECR_REPO_NAME --region $AWS_DEFAULT_REGION
       - git clone $REPO_URL /tmp/repo
-      - cd /tmp/repo
 
   build:
     commands:
@@ -36,22 +38,44 @@ phases:
   post_build:
     commands:
       - IMAGE_URI=$(cat /tmp/image_uri.txt | cut -d= -f2)
-      - echo "Deploying $IMAGE_URI"
-      - STACK_NAME=kayo-project-$PROJECT_ID
       - PORT_NUM=${PORT:-3000}
-      - TEMPLATE_URL=https://s3.amazonaws.com/kayo-artifacts-700640308663/cloudformation/project-stack-template.yaml
+      - FAMILY=kayo-proj-$PROJECT_ID
+      - LOG_GROUP=/ecs/$FAMILY
+      - aws logs create-log-group --log-group-name $LOG_GROUP --region $AWS_DEFAULT_REGION 2>/dev/null || true
       - |
-        aws cloudformation describe-stacks --stack-name $STACK_NAME --region $AWS_DEFAULT_REGION 2>/dev/null && STACK_EXISTS=true || STACK_EXISTS=false
-        SAFE_NAME=$(echo "$PROJECT_NAME" | tr ' ' '-' | tr -cd 'a-zA-Z0-9-')
-        PARAMS="ParameterKey=ProjectId,ParameterValue=$PROJECT_ID ParameterKey=ProjectName,ParameterValue=$SAFE_NAME ParameterKey=ImageUri,ParameterValue=$IMAGE_URI ParameterKey=ContainerPort,ParameterValue=$PORT_NUM"
-        if [ "$STACK_EXISTS" = "true" ]; then
-          aws cloudformation update-stack --stack-name $STACK_NAME --template-url $TEMPLATE_URL --capabilities CAPABILITY_NAMED_IAM --parameters $PARAMS --region $AWS_DEFAULT_REGION 2>&1 || echo "No update needed"
+        TASK_DEF=$(aws ecs register-task-definition \
+          --family $FAMILY \
+          --network-mode awsvpc \
+          --requires-compatibilities FARGATE \
+          --cpu 256 \
+          --memory 512 \
+          --execution-role-arn arn:aws:iam::$(aws sts get-caller-identity --query Account --output text):role/kayo-ecs-execution-role \
+          --container-definitions "[{\"name\":\"app\",\"image\":\"$IMAGE_URI\",\"portMappings\":[{\"containerPort\":$PORT_NUM,\"protocol\":\"tcp\"}],\"essential\":true,\"logConfiguration\":{\"logDriver\":\"awslogs\",\"options\":{\"awslogs-group\":\"$LOG_GROUP\",\"awslogs-region\":\"$AWS_DEFAULT_REGION\",\"awslogs-stream-prefix\":\"ecs\"}}}]" \
+          --region $AWS_DEFAULT_REGION \
+          --query 'taskDefinition.taskDefinitionArn' --output text)
+        echo "Task def: $TASK_DEF"
+      - SVC_NAME=kayo-proj-$PROJECT_ID
+      - |
+        if aws ecs describe-services --cluster $ECS_CLUSTER --services $SVC_NAME --region $AWS_DEFAULT_REGION --query "services[?status=='ACTIVE'].serviceName" --output text 2>/dev/null | grep -q $SVC_NAME; then
+          aws ecs update-service --cluster $ECS_CLUSTER --service $SVC_NAME --task-definition $FAMILY --force-new-deployment --region $AWS_DEFAULT_REGION
         else
-          aws cloudformation create-stack --stack-name $STACK_NAME --template-url $TEMPLATE_URL --capabilities CAPABILITY_NAMED_IAM --parameters $PARAMS --region $AWS_DEFAULT_REGION
+          aws ecs create-service \
+            --cluster $ECS_CLUSTER \
+            --service-name $SVC_NAME \
+            --task-definition $FAMILY \
+            --desired-count 1 \
+            --launch-type FARGATE \
+            --network-configuration "awsvpcConfiguration={subnets=[$SUBNET_1,$SUBNET_2],securityGroups=[$SECURITY_GROUP],assignPublicIp=ENABLED}" \
+            --region $AWS_DEFAULT_REGION
         fi
-        aws cloudformation wait stack-create-complete --stack-name $STACK_NAME --region $AWS_DEFAULT_REGION 2>/dev/null || aws cloudformation wait stack-update-complete --stack-name $STACK_NAME --region $AWS_DEFAULT_REGION 2>/dev/null || true
-        APP_URL=$(aws cloudformation describe-stacks --stack-name $STACK_NAME --region $AWS_DEFAULT_REGION --query 'Stacks[0].Outputs[?OutputKey==`AppURL`].OutputValue' --output text 2>/dev/null || echo "")
-        echo "Deployed to $APP_URL"
-        if [ -n "$APP_URL" ] && [ -n "$CALLBACK_URL" ]; then
+      - echo "Waiting for service to stabilize..."
+      - aws ecs wait services-stable --cluster $ECS_CLUSTER --services $SVC_NAME --region $AWS_DEFAULT_REGION
+      - |
+        TASK_ARN=$(aws ecs list-tasks --cluster $ECS_CLUSTER --service-name $SVC_NAME --region $AWS_DEFAULT_REGION --query "taskArns[0]" --output text)
+        ENI=$(aws ecs describe-tasks --cluster $ECS_CLUSTER --tasks $TASK_ARN --region $AWS_DEFAULT_REGION --query "tasks[0].attachments[0].details[?name=='networkInterfaceId'].value" --output text)
+        PUBLIC_IP=$(aws ec2 describe-network-interfaces --network-interface-ids $ENI --region $AWS_DEFAULT_REGION --query "NetworkInterfaces[0].Association.PublicIp" --output text)
+        APP_URL=http://$PUBLIC_IP:$PORT_NUM
+        echo "APP_URL=$APP_URL"
+        if [ -n "$CALLBACK_URL" ]; then
           curl -s -X POST "$CALLBACK_URL" -H "Content-Type: application/json" -H "Authorization: Bearer $CALLBACK_TOKEN" -d "{\"project_id\":\"$PROJECT_ID\",\"status\":\"active\",\"app_url\":\"$APP_URL\"}" || true
         fi
