@@ -444,16 +444,33 @@ async def _run_deployment_pipeline(project_id: str, tenant_id: str):
             _db_update(status=DeploymentState.FAILED.value, error="Deployment timed out after 20 minutes")
             return
 
-        # ── Get the live URL from CloudFormation outputs ──────────────────────
+        # ── Get the live URL from ECS task public IP ──────────────────────────
         _db_update(status=DeploymentState.HEALTH_CHECK.value)
         try:
-            cf = boto3.client("cloudformation", region_name=_settings.aws_region)
-            stack = cf.describe_stacks(StackName=f"kayo-project-{project_id}")
-            outputs = stack["Stacks"][0].get("Outputs", [])
-            app_url = next((o["OutputValue"] for o in outputs if o["OutputKey"] == "AppURL"), None)
-            if app_url:
-                _db_update(endpoint=app_url)
-                logger.info(f"[{project_id}] Live at: {app_url}")
+            ecs = boto3.client("ecs", region_name=_settings.aws_region)
+            ec2 = boto3.client("ec2", region_name=_settings.aws_region)
+            svc_name = f"kayo-proj-{project_id}"
+            cluster = "kayo-cluster"
+            port = project.get("env_vars", {}).get("PORT", "3000") if project.get("env_vars") else "3000"
+
+            # Get task ARN
+            tasks = ecs.list_tasks(cluster=cluster, serviceName=svc_name)
+            task_arns = tasks.get("taskArns", [])
+            if task_arns:
+                task_detail = ecs.describe_tasks(cluster=cluster, tasks=[task_arns[0]])
+                attachments = task_detail["tasks"][0].get("attachments", [])
+                eni_id = None
+                for att in attachments:
+                    for detail in att.get("details", []):
+                        if detail["name"] == "networkInterfaceId":
+                            eni_id = detail["value"]
+                if eni_id:
+                    eni = ec2.describe_network_interfaces(NetworkInterfaceIds=[eni_id])
+                    public_ip = eni["NetworkInterfaces"][0].get("Association", {}).get("PublicIp")
+                    if public_ip:
+                        app_url = f"http://{public_ip}:{port}"
+                        _db_update(endpoint=app_url)
+                        logger.info(f"[{project_id}] Live at: {app_url}")
         except Exception as e:
             logger.warning(f"[{project_id}] Could not get endpoint: {e}")
 
