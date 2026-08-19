@@ -382,14 +382,8 @@ async def _run_deployment_pipeline(project_id: str, tenant_id: str):
 
         cb = boto3.client("codebuild", region_name=_settings.aws_region)
 
-        # Read the buildspec from the repo in the infrastructure folder
-        with open(os.path.join(os.path.dirname(__file__),
-                               "../../../../infrastructure/aws/buildspec-deploy-project.yml")) as f:
-            buildspec_content = f.read()
-
         build = cb.start_build(
             projectName=_settings.codebuild_deploy_project,
-            buildspecOverride=buildspec_content,
             sourceTypeOverride="NO_SOURCE",
             environmentVariablesOverride=[
                 {"name": "PROJECT_ID",    "value": project_id,               "type": "PLAINTEXT"},
