@@ -148,18 +148,19 @@ DOCKERFILE
       - IMAGE_URI=$(cat /tmp/image_uri.txt | cut -d= -f2)
       - echo "Image built and pushed: $IMAGE_URI"
 
-      # Download CloudFormation template from S3
-      - aws s3 cp s3://kayo-artifacts-700640308663/cloudformation/project-stack-template.yaml /tmp/project-stack.yaml --region $AWS_DEFAULT_REGION
+      # Make S3 template publicly readable for CloudFormation
+      - aws s3api put-object-acl --bucket kayo-artifacts-700640308663 --key cloudformation/project-stack-template.yaml --acl public-read --region $AWS_DEFAULT_REGION
 
-      # Deploy or update the CloudFormation stack
+      # Deploy or update the CloudFormation stack using S3 URL directly
       - STACK_NAME=kayo-project-$PROJECT_ID
       - PORT_NUM=${PORT:-3000}
+      - TEMPLATE_URL=https://kayo-artifacts-700640308663.s3.amazonaws.com/cloudformation/project-stack-template.yaml
       - |
         if aws cloudformation describe-stacks --stack-name $STACK_NAME --region $AWS_DEFAULT_REGION 2>/dev/null; then
           echo "Updating existing stack..."
           aws cloudformation update-stack \
             --stack-name $STACK_NAME \
-            --template-body file:///tmp/project-stack.yaml \
+            --template-url $TEMPLATE_URL \
             --capabilities CAPABILITY_NAMED_IAM \
             --parameters \
               ParameterKey=ProjectId,ParameterValue=$PROJECT_ID \
@@ -171,7 +172,7 @@ DOCKERFILE
           echo "Creating new stack..."
           aws cloudformation create-stack \
             --stack-name $STACK_NAME \
-            --template-body file:///tmp/project-stack.yaml \
+            --template-url $TEMPLATE_URL \
             --capabilities CAPABILITY_NAMED_IAM \
             --parameters \
               ParameterKey=ProjectId,ParameterValue=$PROJECT_ID \
