@@ -160,6 +160,14 @@ async function getBaseline(
   param: string,
 ): Promise<{ body: string; status: number; durationMs: number } | null> {
   try {
+    if (endpoint.isFormEndpoint && endpoint.method === 'POST') {
+      // POST form baseline: submit all fields with benign values
+      const fields = endpoint.queryParams.map((p) => `${encodeURIComponent(p)}=${encodeURIComponent('baseline_9421')}`).join('&');
+      const resp = await makeRequest(endpoint.url, 'POST', {
+        'Content-Type': 'application/x-www-form-urlencoded',
+      }, fields);
+      return { body: resp.body, status: resp.status, durationMs: resp.durationMs };
+    }
     const testUrl = new URL(endpoint.url);
     testUrl.searchParams.set(param, 'baseline_value_9421');
     const resp = await makeRequest(testUrl.toString(), endpoint.method, {});
@@ -167,6 +175,29 @@ async function getBaseline(
   } catch {
     return null;
   }
+}
+
+/** Build a test request URL or body with one parameter set to the payload. */
+function buildTestRequest(
+  endpoint: ApiEndpoint,
+  param: string,
+  payload: string,
+): { url: string; method: string; headers: Record<string, string>; body?: string } {
+  if (endpoint.isFormEndpoint && endpoint.method === 'POST') {
+    // Submit all other fields with benign values, inject payload into target param
+    const fields = endpoint.queryParams
+      .map((p) => `${encodeURIComponent(p)}=${encodeURIComponent(p === param ? payload : 'test')}`)
+      .join('&');
+    return {
+      url: endpoint.url,
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: fields,
+    };
+  }
+  const testUrl = new URL(endpoint.url);
+  testUrl.searchParams.set(param, payload);
+  return { url: testUrl.toString(), method: endpoint.method, headers: {} };
 }
 
 async function testSqli(endpoint: ApiEndpoint): Promise<VulnFinding[]> {
@@ -178,14 +209,10 @@ async function testSqli(endpoint: ApiEndpoint): Promise<VulnFinding[]> {
 
     for (const payload of SQLI_PAYLOADS) {
       try {
-        const testUrl = new URL(endpoint.url);
-        testUrl.searchParams.set(param, payload);
-        const resp = await makeRequest(testUrl.toString(), endpoint.method, {});
+        const req = buildTestRequest(endpoint, param, payload);
+        const resp = await makeRequest(req.url, req.method, req.headers, req.body);
 
-        // Error-based detection: only fire on specific, reliable database error messages
         const hasDbError = SQLI_ERROR_PATTERNS.some(p => p.test(resp.body));
-
-        // Time-based blind detection: flag only if significantly slower than baseline
         const isTimeBased = payload.includes('SLEEP') || payload.includes('WAITFOR');
         const isSignificantlySlower = resp.durationMs > baseline.durationMs + 2500;
 
@@ -193,7 +220,7 @@ async function testSqli(endpoint: ApiEndpoint): Promise<VulnFinding[]> {
           findings.push({
             url: endpoint.url, method: endpoint.method,
             type: 'SQL Injection (Error-based)', severity: 'critical',
-            description: `SQL error message in response for parameter "${param}"`,
+            description: `SQL error in response for ${endpoint.isFormEndpoint ? 'form field' : 'parameter'} "${param}"`,
             evidence: resp.body.slice(0, 300),
             payload: `${param}=${payload}`,
           });
@@ -222,17 +249,15 @@ async function testXss(endpoint: ApiEndpoint): Promise<VulnFinding[]> {
   for (const param of endpoint.queryParams) {
     for (const payload of XSS_PAYLOADS) {
       try {
-        const testUrl = new URL(endpoint.url);
-        testUrl.searchParams.set(param, payload);
-        const resp = await makeRequest(testUrl.toString(), 'GET', {});
+        const req = buildTestRequest(endpoint, param, payload);
+        const resp = await makeRequest(req.url, req.method, req.headers, req.body);
 
-        // Only flag if reflected in an exploitable HTML context (not inside comment or encoded)
         const context = detectXssContext(resp.body, payload);
         if (context) {
           findings.push({
             url: endpoint.url, method: endpoint.method,
             type: 'Reflected XSS', severity: 'high',
-            description: `XSS payload reflected unencoded in ${context} for parameter "${param}"`,
+            description: `XSS payload reflected unencoded in ${context} for ${endpoint.isFormEndpoint ? 'form field' : 'parameter'} "${param}"`,
             evidence: `Payload "${payload}" found in ${context} context`,
             payload: `${param}=${payload}`,
           });
@@ -426,6 +451,39 @@ export async function runVulnScan(endpoints: ApiEndpoint[]): Promise<ScanResult>
       findings.idor.push(...idor);
     }),
   ]);
+
+  // ── Global deduplication ──────────────────────────────────────────────────
+  // Strip framework-specific tokens (_rsc, __cf_chl, etc.) before deduping
+  // so the same vulnerability on the same page isn't reported 10+ times
+  // just because each visit had a different cache-busting token.
+  function dedupeFindings(arr: VulnFinding[]): VulnFinding[] {
+    const seen = new Set<string>();
+    return arr.filter(f => {
+      // Normalise URL: remove _rsc, __cf_, _next_router, and other framework tokens
+      let normUrl = f.url;
+      try {
+        const u = new URL(f.url);
+        const stripped = new URLSearchParams();
+        for (const [k, v] of u.searchParams) {
+          if (/^_rsc$|^__cf|^_next|^__next|^rsc$|^ts$|^cb$|^_t$|^_v$/i.test(k)) continue;
+          stripped.set(k, v);
+        }
+        u.search = stripped.toString();
+        normUrl = u.href;
+      } catch { /* keep original */ }
+      const key = `${f.type}:${normUrl}:${f.payload ?? ''}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }
+
+  findings.xss          = dedupeFindings(findings.xss);
+  findings.sqli         = dedupeFindings(findings.sqli);
+  findings.pathTraversal = dedupeFindings(findings.pathTraversal);
+  findings.openRedirect  = dedupeFindings(findings.openRedirect);
+  findings.infoDisclosure = dedupeFindings(findings.infoDisclosure);
+  findings.idor          = dedupeFindings(findings.idor);
 
   return {
     findings,

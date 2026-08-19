@@ -92,6 +92,44 @@ const SENSITIVE_PATHS = [
 ]
 
 export async function POST(request: NextRequest) {
+  try {
+    return await handleDeepScan(request)
+  } catch (err: any) {
+    return NextResponse.json({
+      url: '',
+      pages_crawled: 0,
+      total_findings: 0,
+      findings: [],
+      crawled_pages: [],
+      sensitive_files: [],
+      source_maps: [],
+      git_repo: null,
+      summary: { critical: 0, high: 0, medium: 0, low: 0 },
+      error: err?.message ?? 'Unknown error',
+    })
+  }
+}
+
+/**
+ * Safely read response body handling non-UTF-8 charsets.
+ */
+async function safeText(res: Response): Promise<string> {
+  try {
+    const buf = await res.arrayBuffer()
+    const ct = res.headers.get('content-type') || ''
+    const charsetMatch = ct.match(/charset=([^\s;]+)/i)
+    const charset = charsetMatch?.[1]?.toLowerCase().replace(/['"]/g, '') || 'utf-8'
+    try {
+      return new TextDecoder(charset).decode(buf)
+    } catch {
+      return new TextDecoder('utf-8', { fatal: false }).decode(buf)
+    }
+  } catch {
+    return ''
+  }
+}
+
+async function handleDeepScan(request: NextRequest) {
   const body = await request.json()
   const { url, maxPages = 20, maxDepth = 3 } = body as { url?: string; maxPages?: number; maxDepth?: number }
 
@@ -128,7 +166,7 @@ export async function POST(request: NextRequest) {
         continue
       }
 
-      const text = await res.text()
+      const text = await safeText(res)
       const title = text.match(/<title>([^<]*)<\/title>/i)?.[1]?.trim()
 
       crawled.push({
@@ -194,7 +232,7 @@ export async function POST(request: NextRequest) {
         if (res.status === 200) {
           const ct = res.headers.get('content-type') || ''
           // Check if it's actually a real file (not a custom 404 page)
-          const text = await res.text()
+          const text = await safeText(res)
           const isReal = text.length < 500000 && (
             path.includes('.env') ? text.includes('=') :
             path.includes('.git') ? (text.includes('[core]') || text.includes('ref:')) :
@@ -236,7 +274,7 @@ export async function POST(request: NextRequest) {
           cache: 'no-store',
         })
         if (res.status === 200) {
-          const text = await res.text()
+          const text = await safeText(res)
           if (text.includes('"sources"') || text.includes('"mappings"')) {
             sourceMaps.push(mapUrl)
             findings.push({
@@ -295,7 +333,7 @@ export async function POST(request: NextRequest) {
           cache: 'no-store',
         })
         if (res.ok) {
-          const text = await res.text()
+          const text = await safeText(res)
           const repoPatterns = [
             /https?:\/\/github\.com\/[a-zA-Z0-9_-]+\/[a-zA-Z0-9_.-]+/g,
             /https?:\/\/gitlab\.com\/[a-zA-Z0-9_-]+\/[a-zA-Z0-9_.-]+/g,
@@ -353,7 +391,7 @@ export async function POST(request: NextRequest) {
         cache: 'no-store',
       })
       if (mainRes.ok) {
-        const html = await mainRes.text()
+        const html = await safeText(mainRes)
         const ghMatch = html.match(/(?:data-repo|data-source|data-github)\s*=\s*["']([^"']+)["']/i)
         if (ghMatch) gitRepoUrl = ghMatch[1]
       }

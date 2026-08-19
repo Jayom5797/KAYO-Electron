@@ -12,6 +12,10 @@ from api.routes import tenants_router, auth_router, deployments_router, incident
 from api.middleware.rate_limiter import RateLimitMiddleware
 from api.middleware.audit_logger import AuditLogMiddleware
 
+# Import all models so Base.metadata.create_all picks them up
+from models import user, tenant, scan, asset, deployment, audit_log, incident, invitation, webhook  # noqa
+from models.project import Project  # noqa
+
 # Configure logging
 logging.basicConfig(
     level=logging.INFO if settings.debug else logging.WARNING,
@@ -170,7 +174,7 @@ async def health_check():
         checks["redis"] = {"status": "down", "error": str(e)}
         overall = "degraded"
 
-    # Kafka
+    # Kafka — optional service, does not affect overall health
     try:
         import socket
         start = _time.time()
@@ -179,10 +183,9 @@ async def health_check():
         sock.close()
         checks["kafka"] = {"status": "up", "response_ms": round((_time.time() - start) * 1000)}
     except Exception as e:
-        checks["kafka"] = {"status": "down", "error": str(e)}
-        overall = "degraded"
+        checks["kafka"] = {"status": "unavailable", "error": str(e), "optional": True}
 
-    # Neo4j
+    # Neo4j — optional service, does not affect overall health
     try:
         from neo4j import GraphDatabase
         start = _time.time()
@@ -195,10 +198,9 @@ async def health_check():
         driver.close()
         checks["neo4j"] = {"status": "up", "response_ms": round((_time.time() - start) * 1000)}
     except Exception as e:
-        checks["neo4j"] = {"status": "down", "error": str(e)}
-        overall = "degraded"
+        checks["neo4j"] = {"status": "unavailable", "error": str(e), "optional": True}
 
-    # ClickHouse
+    # ClickHouse — optional service, does not affect overall health
     try:
         import socket
         start = _time.time()
@@ -206,8 +208,7 @@ async def health_check():
         sock.close()
         checks["clickhouse"] = {"status": "up", "response_ms": round((_time.time() - start) * 1000)}
     except Exception as e:
-        checks["clickhouse"] = {"status": "down", "error": str(e)}
-        overall = "degraded"
+        checks["clickhouse"] = {"status": "unavailable", "error": str(e), "optional": True}
 
     return {
         "status": overall,

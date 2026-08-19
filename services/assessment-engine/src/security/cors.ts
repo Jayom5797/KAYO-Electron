@@ -1,5 +1,40 @@
 import type { NetworkRequest } from '../types.js';
 
+// Well-known CDN, analytics, and font domains where wildcard CORS is
+// intentional and expected — not a security finding.
+const TRUSTED_THIRD_PARTY_DOMAINS = [
+  'googleapis.com', 'gstatic.com', 'google.com', 'googletagmanager.com',
+  'googleanalytics.com', 'doubleclick.net', 'googlesyndication.com',
+  'cloudflareinsights.com', 'cloudflare.com',
+  'fontawesome.com', 'jsdelivr.net', 'unpkg.com', 'cdnjs.cloudflare.com',
+  'bootstrapcdn.com', 'jquery.com',
+  'facebook.com', 'facebook.net', 'fbcdn.net',
+  'twitter.com', 'twimg.com',
+  'linkedin.com', 'licdn.com',
+  'instagram.com', 'cdninstagram.com',
+  'youtube.com', 'ytimg.com',
+  'amazon.com', 'amazonaws.com', 'cloudfront.net',
+  'akamaized.net', 'akamai.net',
+  'fastly.net', 'fastly.com',
+  'stripe.com', 'stripe.network',
+  'intercom.io', 'intercomcdn.com',
+  'hotjar.com', 'mixpanel.com', 'segment.com', 'segment.io',
+  'sentry.io', 'browser.sentry-cdn.com',
+  'newrelic.com', 'nr-data.net',
+  'wp.com', 'wp-content.com', 'wordpress.com',
+];
+
+function isTrustedThirdParty(url: string): boolean {
+  try {
+    const hostname = new URL(url).hostname;
+    return TRUSTED_THIRD_PARTY_DOMAINS.some(domain =>
+      hostname === domain || hostname.endsWith('.' + domain)
+    );
+  } catch {
+    return false;
+  }
+}
+
 export type CorsRiskLevel = 'critical' | 'high' | 'medium' | 'low' | 'info';
 
 export interface CorsFinding {
@@ -55,9 +90,7 @@ export function analyzeCors(requests: NetworkRequest[]): CorsReport {
     try { reqHost = new URL(req.url).hostname; } catch { /* skip */ }
 
     // ── CRITICAL: wildcard + credentials ─────────────────────────────────────
-    // Browsers block this combination but it signals the server is trying to
-    // do something impossible — indicates a broken/confused CORS implementation.
-    if (acao === '*' && acac === 'true') {
+    if (acao === '*' && acac === 'true' && !isTrustedThirdParty(req.url)) {
       findings.push({
         url: req.url, method: req.method, riskLevel: 'critical',
         issue: 'Wildcard origin with credentials flag',
@@ -68,8 +101,7 @@ export function analyzeCors(requests: NetworkRequest[]): CorsReport {
     }
 
     // ── HIGH: wildcard on XHR/fetch API endpoints ─────────────────────────────
-    // Any origin can read responses from this API — real data exposure risk.
-    if (acao === '*' && (req.resourceType === 'xhr' || req.resourceType === 'fetch')) {
+    if (acao === '*' && (req.resourceType === 'xhr' || req.resourceType === 'fetch') && !isTrustedThirdParty(req.url)) {
       findings.push({
         url: req.url, method: req.method, riskLevel: 'high',
         issue: 'Wildcard CORS on API endpoint',
@@ -80,9 +112,7 @@ export function analyzeCors(requests: NetworkRequest[]): CorsReport {
     }
 
     // ── HIGH: credentials allowed with an UNTRUSTED specific origin ───────────
-    // Only flag when the allowed origin is NOT a subdomain of the target site.
-    // Same-site credentialed CORS (e.g. app.example.com → api.example.com) is correct.
-    if (acao !== '*' && acac === 'true' && reqHost && !isSameOrSubdomain(acao, reqHost)) {
+    if (acao !== '*' && acac === 'true' && reqHost && !isSameOrSubdomain(acao, reqHost) && !isTrustedThirdParty(req.url)) {
       findings.push({
         url: req.url, method: req.method, riskLevel: 'high',
         issue: 'Credentials allowed for cross-origin third-party requests',
@@ -92,17 +122,14 @@ export function analyzeCors(requests: NetworkRequest[]): CorsReport {
       });
     }
 
-    // ── MEDIUM: origin reflection without validation ───────────────────────────
-    // If the server reflects back whatever Origin header the browser sent,
-    // that's equivalent to wildcard but also sends credentials. Look for
-    // suspicious patterns like the origin containing user-controlled data.
-    // We detect this by checking if ACAO matches a non-standard pattern.
+    // ── MEDIUM: origin reflection — skip trusted CDNs ─────────────────────
     if (
       acao !== '*' &&
       !isSameOrSubdomain(acao, reqHost) &&
       acac !== 'true' &&
-      // Only flag if it looks like a dynamic reflection (not a known CDN or fixed partner)
-      /^https?:\/\//.test(acao)
+      /^https?:\/\//.test(acao) &&
+      !isTrustedThirdParty(req.url) &&
+      !isTrustedThirdParty(acao)
     ) {
       findings.push({
         url: req.url, method: req.method, riskLevel: 'medium',
@@ -112,9 +139,8 @@ export function analyzeCors(requests: NetworkRequest[]): CorsReport {
       });
     }
 
-    // ── LOW: wildcard on static/non-API resource ─────────────────────────────
-    // Acceptable for CDN assets, but flag as info so the user is aware.
-    if (acao === '*' && req.resourceType !== 'xhr' && req.resourceType !== 'fetch') {
+    // ── LOW: wildcard on static/non-API resource — skip trusted CDNs ────────
+    if (acao === '*' && req.resourceType !== 'xhr' && req.resourceType !== 'fetch' && !isTrustedThirdParty(req.url)) {
       findings.push({
         url: req.url, method: req.method, riskLevel: 'low',
         issue: 'Wildcard CORS on static resource',

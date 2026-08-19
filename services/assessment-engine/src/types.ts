@@ -30,12 +30,28 @@ export interface NetworkRequest {
 export interface CaptureOptions {
   url: string;
   timeoutMs: number;
+  /** Max pages to spider. Default 1 (landing page only). Set higher for full-site scan. */
+  maxPages?: number;
+  /** Only follow links on the same origin. Default true. */
+  sameOriginOnly?: boolean;
+}
+
+/** A discovered HTML form and its fields — used to synthesize injectable endpoints. */
+export interface DiscoveredForm {
+  pageUrl: string;
+  action: string;        // resolved absolute URL
+  method: 'GET' | 'POST';
+  fields: Array<{ name: string; type: string; value?: string }>;
 }
 
 export interface CaptureResult {
   requests: NetworkRequest[];
   captureTimestamp: string; // ISO 8601
   totalDurationMs: number;
+  /** Pages actually visited during the spider run. */
+  discoveredUrls?: string[];
+  /** HTML forms found across all crawled pages. */
+  forms?: DiscoveredForm[];
 }
 
 export interface AggregateMetrics {

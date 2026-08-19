@@ -31,11 +31,12 @@ class AssessmentClient:
         url: str,
         tenant_id: str,
         active_scan: bool = False,
-        timeout_ms: int = 30000,
+        timeout_ms: int = 60000,
+        max_pages: int = 25,
     ) -> Dict[str, Any]:
         """
         Trigger a URL security assessment.
-
+        max_pages controls how many pages the spider visits before active scanning.
         Returns: {"scan_id": "...", "status": "running"}
         """
         async with httpx.AsyncClient(timeout=30.0) as client:
@@ -47,6 +48,7 @@ class AssessmentClient:
                     "tenant_id": tenant_id,
                     "active_scan": active_scan,
                     "timeout_ms": timeout_ms,
+                    "max_pages": max_pages,
                 },
             )
             response.raise_for_status()

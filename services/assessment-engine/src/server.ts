@@ -39,7 +39,7 @@ interface ScanRecord {
 const scans = new Map<string, ScanRecord>();
 
 // ── Auth middleware (validates internal service token) ─────────────────────────
-const SERVICE_TOKEN = process.env.KAYO_SERVICE_TOKEN || 'dev-token';
+const SERVICE_TOKEN = process.env.KAYO_SERVICE_TOKEN || 'kayo-internal-service-token';
 
 app.use((req, res, next) => {
   // Health check is unauthenticated
@@ -60,11 +60,12 @@ app.get('/health', (_req, res) => {
 
 // ── POST /assess/url ──────────────────────────────────────────────────────────
 app.post('/assess/url', async (req, res) => {
-  const { url, tenant_id, active_scan = false, timeout_ms = 30000 } = req.body as {
+  const { url, tenant_id, active_scan = false, timeout_ms = 60000, max_pages = 25 } = req.body as {
     url?: string;
     tenant_id?: string;
     active_scan?: boolean;
     timeout_ms?: number;
+    max_pages?: number;
   };
 
   if (!url) {
@@ -99,7 +100,7 @@ app.post('/assess/url', async (req, res) => {
 
   // Run scan asynchronously
   record.status = 'running';
-  runScan(url, { activeScan: active_scan, timeoutMs: timeout_ms })
+  runScan(url, { activeScan: active_scan, timeoutMs: timeout_ms, maxPages: max_pages })
     .then((result) => {
       record.status = 'completed';
       record.completed_at = new Date().toISOString();

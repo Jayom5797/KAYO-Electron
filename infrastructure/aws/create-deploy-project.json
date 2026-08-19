@@ -1,0 +1,29 @@
+{
+  "name": "kayo-deploy-project",
+  "description": "Builds and deploys user GitHub repos to AWS ECS Fargate",
+  "source": {
+    "type": "NO_SOURCE",
+    "buildspec": "version: 0.2\nphases:\n  build:\n    commands:\n      - echo placeholder"
+  },
+  "artifacts": {
+    "type": "NO_ARTIFACTS"
+  },
+  "environment": {
+    "type": "LINUX_CONTAINER",
+    "image": "aws/codebuild/standard:7.0",
+    "computeType": "BUILD_GENERAL1_MEDIUM",
+    "privilegedMode": true,
+    "environmentVariables": [
+      {"name": "AWS_DEFAULT_REGION", "value": "us-east-1", "type": "PLAINTEXT"},
+      {"name": "AWS_ACCOUNT_ID", "value": "700640308663", "type": "PLAINTEXT"}
+    ]
+  },
+  "serviceRole": "arn:aws:iam::700640308663:role/kayo-codebuild-role",
+  "logsConfig": {
+    "cloudWatchLogs": {
+      "status": "ENABLED",
+      "groupName": "/aws/codebuild/kayo-deploy-project"
+    }
+  },
+  "timeoutInMinutes": 60
+}

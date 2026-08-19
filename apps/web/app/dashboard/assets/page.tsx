@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { useQuery } from '@tanstack/react-query'
 import { formatRelativeTime } from '@/lib/utils'
@@ -8,7 +8,7 @@ export default function AssetsPage() {
     queryKey: ['assets'],
     queryFn: async () => {
       const token = localStorage.getItem('access_token')
-      const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+      const baseUrl = (typeof window !== 'undefined' && !window.location.hostname.includes('localhost') ? window.location.origin : (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'))
       const res = await fetch(`${baseUrl}/api/scans/assets`, {
         headers: { 'Authorization': `Bearer ${token}` }
       })
@@ -42,7 +42,7 @@ export default function AssetsPage() {
                     <div>
                       <p className="text-sm font-medium text-white">{asset.name}</p>
                       <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
-                        {asset.type} • {asset.git_repo || asset.url || 'No source configured'}
+                        {asset.type} â€¢ {asset.git_repo || asset.url || 'No source configured'}
                       </p>
                     </div>
                     <div className="flex items-center gap-2">
@@ -57,7 +57,7 @@ export default function AssetsPage() {
             </div>
           ) : (
             <div className="p-12 text-center" style={{ color: 'var(--text-muted)' }}>
-              <span className="text-3xl block mb-3 opacity-30">◫</span>
+              <span className="text-3xl block mb-3 opacity-30">â—«</span>
               <p className="text-sm">No assets registered. Assets are created when you deploy or assess an application.</p>
             </div>
           )}
@@ -66,3 +66,4 @@ export default function AssetsPage() {
     </div>
   )
 }
+

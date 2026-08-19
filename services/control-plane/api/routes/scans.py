@@ -28,92 +28,164 @@ async def _poll_and_persist(scan_db_id: uuid.UUID, engine_scan_id: str, tenant_i
     """
     Background task that polls the assessment engine for results
     and persists findings to PostgreSQL.
+
+    All synchronous SQLAlchemy calls are offloaded to a thread-pool executor so
+    they never block the FastAPI event loop.
     """
-    from sqlalchemy import create_engine
+    import asyncio
+    from concurrent.futures import ThreadPoolExecutor
+    from sqlalchemy import create_engine as _create_engine
     from sqlalchemy.orm import sessionmaker
     from services.assessment_client import AssessmentClient
 
-    engine = create_engine(db_url)
-    SessionLocal = sessionmaker(bind=engine)
-    db = SessionLocal()
+    loop = asyncio.get_event_loop()
+    executor = ThreadPoolExecutor(max_workers=1)
+
+    def _db_write(fn):
+        """Run a synchronous DB function in the thread-pool."""
+        return loop.run_in_executor(executor, fn)
+
+    # Build a dedicated sync engine/session for this background task
+    sync_engine = _create_engine(db_url)
+    SyncSession = sessionmaker(bind=sync_engine)
+
     client = AssessmentClient()
 
     try:
-        # Poll until complete
+        # Poll assessment engine asynchronously (already async-safe)
         result = await client.poll_until_complete(engine_scan_id, max_attempts=120, interval_s=2.0)
 
-        scan = db.query(Scan).filter(Scan.scan_id == scan_db_id).first()
-        if not scan:
-            logger.error(f"Scan {scan_db_id} not found in database")
-            return
+        scan_status = result.get("status")
 
-        if result.get("status") == "completed":
-            scan.status = "completed"
-            scan.completed_at = datetime.utcnow()
-            scan.posture_rating = result.get("posture", {}).get("rating") if result.get("posture") else None
-            scan.posture_score = result.get("posture", {}).get("score") if result.get("posture") else None
+        if scan_status == "completed":
+            # Fetch findings + report concurrently
+            findings_data, report = await asyncio.gather(
+                client.get_findings(engine_scan_id),
+                client.get_report(engine_scan_id).catch_errors(),
+                return_exceptions=True,
+            ) if False else (
+                await client.get_findings(engine_scan_id),
+                None,
+            )
 
-            # Fetch findings from assessment engine
-            findings_data = await client.get_findings(engine_scan_id)
-
-            # Persist findings
-            counts = {"critical": 0, "high": 0, "medium": 0, "low": 0, "info": 0}
-            for f in findings_data:
-                severity = f.get("severity", "info")
-                counts[severity] = counts.get(severity, 0) + 1
-
-                finding = Finding(
-                    scan_id=scan_db_id,
-                    tenant_id=uuid.UUID(tenant_id),
-                    asset_id=scan.asset_id,
-                    type=f.get("type", "unknown"),
-                    severity=severity,
-                    category=f.get("category", "General"),
-                    title=f.get("title"),
-                    description=f.get("description", ""),
-                    endpoint=f.get("endpoint"),
-                    evidence=f.get("evidence"),
-                    remediation=f.get("remediation"),
-                    cve_id=f.get("cve_id"),
-                )
-                db.add(finding)
-
-            scan.finding_counts = counts
-            scan.total_findings = len(findings_data)
-
-            # Fetch report
             try:
                 report = await client.get_report(engine_scan_id)
-                scan.report_data = {"markdown": report.get("content", "")}
+            except Exception:
+                report = None
+
+            def _persist_completed():
+                db = SyncSession()
+                try:
+                    scan = db.query(Scan).filter(Scan.scan_id == scan_db_id).first()
+                    if not scan:
+                        logger.error(f"Scan {scan_db_id} not found in database")
+                        return
+
+                    scan.status = "completed"
+                    scan.completed_at = datetime.utcnow()
+                    posture = result.get("posture") or {}
+                    scan.posture_rating = posture.get("rating")
+                    scan.posture_score = posture.get("score")
+
+                    counts = {"critical": 0, "high": 0, "medium": 0, "low": 0, "info": 0}
+                    for f in findings_data:
+                        severity = f.get("severity", "info")
+                        counts[severity] = counts.get(severity, 0) + 1
+                        finding = Finding(
+                            scan_id=scan_db_id,
+                            tenant_id=uuid.UUID(tenant_id),
+                            asset_id=scan.asset_id,
+                            type=f.get("type", "unknown"),
+                            severity=severity,
+                            category=f.get("category", "General"),
+                            title=f.get("title"),
+                            description=f.get("description", ""),
+                            endpoint=f.get("endpoint"),
+                            evidence=f.get("evidence"),
+                            remediation=f.get("remediation"),
+                            cve_id=f.get("cve_id"),
+                        )
+                        db.add(finding)
+
+                    scan.finding_counts = counts
+                    scan.total_findings = len(findings_data)
+
+                    if report:
+                        scan.report_data = {"markdown": report.get("content", "")}
+
+                    db.commit()
+                    logger.info(f"Scan {scan_db_id} completed: {len(findings_data)} findings")
+                    return scan
+                finally:
+                    db.close()
+
+            scan = await _db_write(_persist_completed)
+
+            # Broadcast real-time WS event to the tenant
+            try:
+                from main import ws_manager
+                await ws_manager.broadcast(
+                    tenant_id,
+                    "scan.completed",
+                    {
+                        "scan_id": str(scan_db_id),
+                        "status": "completed",
+                        "posture_rating": result.get("posture", {}).get("rating"),
+                        "posture_score": result.get("posture", {}).get("score"),
+                        "total_findings": len(findings_data),
+                    }
+                )
+            except Exception as e:
+                logger.warning(f"WS broadcast failed for scan {scan_db_id}: {e}")
+
+        elif scan_status in ("failed", "timeout"):
+            error_msg = result.get("error", "Assessment engine reported failure") if scan_status == "failed" else "Assessment timed out"
+
+            def _persist_failed():
+                db = SyncSession()
+                try:
+                    scan = db.query(Scan).filter(Scan.scan_id == scan_db_id).first()
+                    if scan:
+                        scan.status = "failed"
+                        scan.error = error_msg
+                        scan.completed_at = datetime.utcnow()
+                        db.commit()
+                finally:
+                    db.close()
+
+            await _db_write(_persist_failed)
+
+            try:
+                from main import ws_manager
+                await ws_manager.broadcast(
+                    tenant_id,
+                    "scan.failed",
+                    {"scan_id": str(scan_db_id), "status": "failed", "error": error_msg}
+                )
             except Exception:
                 pass
 
-            logger.info(f"Scan {scan_db_id} completed: {len(findings_data)} findings")
-
-        elif result.get("status") == "failed":
-            scan.status = "failed"
-            scan.error = result.get("error", "Assessment engine reported failure")
-            scan.completed_at = datetime.utcnow()
-        else:
-            scan.status = "failed"
-            scan.error = "Assessment timed out"
-            scan.completed_at = datetime.utcnow()
-
-        db.commit()
-
     except Exception as e:
         logger.error(f"Background poll failed for scan {scan_db_id}: {e}", exc_info=True)
+
+        def _persist_error():
+            db = SyncSession()
+            try:
+                scan = db.query(Scan).filter(Scan.scan_id == scan_db_id).first()
+                if scan:
+                    scan.status = "failed"
+                    scan.error = f"Internal error: {str(e)}"
+                    scan.completed_at = datetime.utcnow()
+                    db.commit()
+            finally:
+                db.close()
+
         try:
-            scan = db.query(Scan).filter(Scan.scan_id == scan_db_id).first()
-            if scan:
-                scan.status = "failed"
-                scan.error = f"Internal error: {str(e)}"
-                scan.completed_at = datetime.utcnow()
-                db.commit()
+            await _db_write(_persist_error)
         except Exception:
             pass
     finally:
-        db.close()
+        executor.shutdown(wait=False)
 
 
 # ── POST /api/scans/url ────────────────────────────────────────────────────────
@@ -157,6 +229,7 @@ async def create_url_scan(
             url=scan_data.target,
             tenant_id=str(tenant_id),
             active_scan=scan_data.active_scan,
+            max_pages=scan_data.options.get("max_pages", 25) if scan_data.options else 25,
         )
         engine_scan_id = result.get("scan_id")
         scan.status = "running"
@@ -352,10 +425,6 @@ async def evaluate_security_gate(
     findings_dicts = [{"severity": f.severity, "type": f.type, "category": f.category} for f in findings]
 
     # Import and run gate evaluation
-    import sys
-    import os
-    sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../../../../services/deployment-engine')))
-
     from security_gate import evaluate_gate, DeploymentPolicy
 
     policy = None

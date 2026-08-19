@@ -1,0 +1,81 @@
+version: 0.2
+
+env:
+  variables:
+    AWS_DEFAULT_REGION: "us-east-1"
+    ECR_REPO_NAME: "kayo-projects"
+    ECS_CLUSTER: "kayo-cluster"
+    SUBNET_1: "subnet-0a6affb79f47552c2"
+    SUBNET_2: "subnet-0323dc75ba3acba19"
+    SECURITY_GROUP: "sg-09d681f4f2140edcb"
+
+phases:
+  install:
+    commands:
+      - yum install -y git 2>/dev/null || apt-get install -y git 2>/dev/null || true
+
+  pre_build:
+    commands:
+      - ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+      - ECR_URI=$ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$ECR_REPO_NAME
+      - aws ecr get-login-password --region $AWS_DEFAULT_REGION | docker login --username AWS --password-stdin $ECR_URI
+      - aws ecr describe-repositories --repository-names $ECR_REPO_NAME --region $AWS_DEFAULT_REGION 2>/dev/null || aws ecr create-repository --repository-name $ECR_REPO_NAME --region $AWS_DEFAULT_REGION
+      - git clone $REPO_URL /tmp/repo
+
+  build:
+    commands:
+      - cd /tmp/repo
+      - ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+      - ECR_URI=$ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$ECR_REPO_NAME
+      - IMAGE_TAG=$PROJECT_ID
+      - if [ ! -f Dockerfile ] && [ -f package.json ]; then HAS_START=$(node -e "const p=require('./package.json'); console.log(p.scripts&&p.scripts.start?'yes':'no')" 2>/dev/null || echo "no"); if [ "$HAS_START" = "yes" ]; then printf 'FROM node:18-alpine\nWORKDIR /app\nCOPY package*.json ./\nRUN npm install\nCOPY . .\nRUN npm run build 2>/dev/null || true\nEXPOSE 3000\nCMD ["npm","start"]\n' > Dockerfile; else printf 'FROM node:18-alpine\nWORKDIR /app\nCOPY package*.json ./\nRUN npm install\nCOPY . .\nRUN npm run build 2>/dev/null || true\nEXPOSE 3000\nCMD ["npx","serve","-s","build","-l","3000"]\n' > Dockerfile; fi; fi
+      - if [ ! -f Dockerfile ] && [ -f requirements.txt ]; then MAIN=$(ls app.py main.py server.py run.py 2>/dev/null | head -1); printf "FROM python:3.11-slim\nWORKDIR /app\nCOPY requirements.txt .\nRUN pip install -r requirements.txt\nCOPY . .\nEXPOSE 8000\nCMD [\"python\",\"$MAIN\"]\n" > Dockerfile; fi
+      - if [ ! -f Dockerfile ]; then printf 'FROM nginx:alpine\nCOPY . /usr/share/nginx/html\nEXPOSE 80\nCMD ["nginx","-g","daemon off;"]\n' > Dockerfile; PORT_NUM=80; fi
+      - docker build -t $ECR_URI:$IMAGE_TAG .
+      - docker push $ECR_URI:$IMAGE_TAG
+      - echo "IMAGE_URI=$ECR_URI:$IMAGE_TAG" > /tmp/image_uri.txt
+
+  post_build:
+    commands:
+      - IMAGE_URI=$(cat /tmp/image_uri.txt | cut -d= -f2)
+      - PORT_NUM=${PORT:-3000}
+      - FAMILY=kayo-proj-$PROJECT_ID
+      - LOG_GROUP=/ecs/$FAMILY
+      - aws logs create-log-group --log-group-name $LOG_GROUP --region $AWS_DEFAULT_REGION 2>/dev/null || true
+      - |
+        TASK_DEF=$(aws ecs register-task-definition \
+          --family $FAMILY \
+          --network-mode awsvpc \
+          --requires-compatibilities FARGATE \
+          --cpu 256 \
+          --memory 512 \
+          --execution-role-arn arn:aws:iam::$(aws sts get-caller-identity --query Account --output text):role/kayo-ecs-execution-role \
+          --container-definitions "[{\"name\":\"app\",\"image\":\"$IMAGE_URI\",\"portMappings\":[{\"containerPort\":$PORT_NUM,\"protocol\":\"tcp\"}],\"essential\":true,\"logConfiguration\":{\"logDriver\":\"awslogs\",\"options\":{\"awslogs-group\":\"$LOG_GROUP\",\"awslogs-region\":\"$AWS_DEFAULT_REGION\",\"awslogs-stream-prefix\":\"ecs\"}}}]" \
+          --region $AWS_DEFAULT_REGION \
+          --query 'taskDefinition.taskDefinitionArn' --output text)
+        echo "Task def: $TASK_DEF"
+      - SVC_NAME=kayo-proj-$PROJECT_ID
+      - |
+        if aws ecs describe-services --cluster $ECS_CLUSTER --services $SVC_NAME --region $AWS_DEFAULT_REGION --query "services[?status=='ACTIVE'].serviceName" --output text 2>/dev/null | grep -q $SVC_NAME; then
+          aws ecs update-service --cluster $ECS_CLUSTER --service $SVC_NAME --task-definition $FAMILY --force-new-deployment --region $AWS_DEFAULT_REGION
+        else
+          aws ecs create-service \
+            --cluster $ECS_CLUSTER \
+            --service-name $SVC_NAME \
+            --task-definition $FAMILY \
+            --desired-count 1 \
+            --launch-type FARGATE \
+            --network-configuration "awsvpcConfiguration={subnets=[$SUBNET_1,$SUBNET_2],securityGroups=[$SECURITY_GROUP],assignPublicIp=ENABLED}" \
+            --region $AWS_DEFAULT_REGION
+        fi
+      - echo "Waiting for service to stabilize..."
+      - aws ecs wait services-stable --cluster $ECS_CLUSTER --services $SVC_NAME --region $AWS_DEFAULT_REGION
+      - |
+        TASK_ARN=$(aws ecs list-tasks --cluster $ECS_CLUSTER --service-name $SVC_NAME --region $AWS_DEFAULT_REGION --query "taskArns[0]" --output text)
+        ENI=$(aws ecs describe-tasks --cluster $ECS_CLUSTER --tasks $TASK_ARN --region $AWS_DEFAULT_REGION --query "tasks[0].attachments[0].details[?name=='networkInterfaceId'].value" --output text)
+        PUBLIC_IP=$(aws ec2 describe-network-interfaces --network-interface-ids $ENI --region $AWS_DEFAULT_REGION --query "NetworkInterfaces[0].Association.PublicIp" --output text)
+        APP_URL=http://$PUBLIC_IP:$PORT_NUM
+        echo "APP_URL=$APP_URL"
+        if [ -n "$CALLBACK_URL" ]; then
+          curl -s -X POST "$CALLBACK_URL" -H "Content-Type: application/json" -H "Authorization: Bearer $CALLBACK_TOKEN" -d "{\"project_id\":\"$PROJECT_ID\",\"status\":\"active\",\"app_url\":\"$APP_URL\"}" || true
+        fi

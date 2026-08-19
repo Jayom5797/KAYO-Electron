@@ -34,6 +34,46 @@ interface ReconResult {
 }
 
 export async function POST(request: NextRequest) {
+  try {
+    return await handleRecon(request)
+  } catch (err: any) {
+    return NextResponse.json({
+      url: '',
+      tech_stack: [],
+      hosting: null,
+      cdn: null,
+      git_repo: null,
+      git_repo_confidence: null,
+      findings: [{ method: 'error', type: 'Error', value: err?.message ?? 'Unknown error', confidence: 'low' as const, detail: 'Recon failed unexpectedly' }],
+      headers_raw: {},
+      error: err?.message ?? 'Unknown error',
+    })
+  }
+}
+
+/**
+ * Safely read response body as text, handling non-UTF-8 charsets gracefully.
+ * Returns empty string on any failure rather than throwing.
+ */
+async function safeText(res: Response): Promise<string> {
+  try {
+    const buf = await res.arrayBuffer()
+    // Detect charset from Content-Type header
+    const ct = res.headers.get('content-type') || ''
+    const charsetMatch = ct.match(/charset=([^\s;]+)/i)
+    const charset = charsetMatch?.[1]?.toLowerCase().replace(/['"]/g, '') || 'utf-8'
+    try {
+      return new TextDecoder(charset).decode(buf)
+    } catch {
+      // Fallback to UTF-8 with replacement characters
+      return new TextDecoder('utf-8', { fatal: false }).decode(buf)
+    }
+  } catch {
+    return ''
+  }
+}
+
+async function handleRecon(request: NextRequest) {
   const body = await request.json()
   const { url } = body as { url?: string }
 
@@ -106,7 +146,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Detect framework from response body
-    const html = await res.text()
+    const html = await safeText(res)
 
     // Next.js detection
     if (html.includes('/_next/') || html.includes('__next') || poweredBy.includes('Next.js')) {
@@ -221,7 +261,7 @@ export async function POST(request: NextRequest) {
         cache: 'no-store',
       })
       if (res.status === 200) {
-        const text = await res.text()
+        const text = await safeText(res)
         const result = parser(text, path)
         if (result) {
           findings.push(result)
@@ -295,7 +335,7 @@ export async function POST(request: NextRequest) {
       signal: AbortSignal.timeout(8000),
       cache: 'no-store',
     })
-    const html = await mainRes.text()
+    const html = await safeText(mainRes)
 
     // Get JS bundle URLs
     const jsFiles = [...new Set(

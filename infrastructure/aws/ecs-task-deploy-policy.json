@@ -1,0 +1,30 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "codebuild:StartBuild",
+        "codebuild:BatchGetBuilds",
+        "codebuild:ListBuildsForProject"
+      ],
+      "Resource": "arn:aws:codebuild:us-east-1:700640308663:project/kayo-deploy-project"
+    },
+    {
+      "Effect": "Allow",
+      "Action": [
+        "cloudformation:DescribeStacks",
+        "cloudformation:DescribeStackEvents"
+      ],
+      "Resource": "arn:aws:cloudformation:us-east-1:700640308663:stack/kayo-project-*/*"
+    },
+    {
+      "Effect": "Allow",
+      "Action": [
+        "logs:GetLogEvents",
+        "logs:DescribeLogStreams"
+      ],
+      "Resource": "arn:aws:logs:us-east-1:700640308663:log-group:/aws/codebuild/kayo-deploy-project:*"
+    }
+  ]
+}

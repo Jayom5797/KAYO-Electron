@@ -1,0 +1,10 @@
+﻿{
+  "Version": "2012-10-17",
+  "Statement": [{
+    "Sid": "AllowCFTemplateRead",
+    "Effect": "Allow",
+    "Principal": {"Service": "cloudformation.amazonaws.com"},
+    "Action": "s3:GetObject",
+    "Resource": "arn:aws:s3:::kayo-artifacts-700640308663/cloudformation/*"
+  }]
+}

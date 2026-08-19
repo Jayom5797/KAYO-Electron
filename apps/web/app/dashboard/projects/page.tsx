@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
@@ -29,9 +29,11 @@ export default function ProjectsPage() {
     queryKey: ['projects'],
     queryFn: async () => {
       const token = localStorage.getItem('access_token')
-      const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+      const baseUrl = (typeof window !== 'undefined' && !window.location.hostname.includes('localhost') ? window.location.origin : (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'))
       const resp = await fetch(`${baseUrl}/api/projects/`, { headers: { Authorization: `Bearer ${token}` } })
-      return resp.ok ? resp.json() : []
+      const data = resp.ok ? await resp.json() : []
+      // Filter out deleted and deleting projects
+      return data.filter((p: any) => p.status !== 'deleted' && p.status !== 'deleting')
     },
     refetchInterval: 3000,
   })
@@ -39,7 +41,7 @@ export default function ProjectsPage() {
   const createProject = useMutation({
     mutationFn: async () => {
       const token = localStorage.getItem('access_token')
-      const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+      const baseUrl = (typeof window !== 'undefined' && !window.location.hostname.includes('localhost') ? window.location.origin : (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'))
       const resp = await fetch(`${baseUrl}/api/projects/`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
@@ -58,7 +60,7 @@ export default function ProjectsPage() {
   const deployProject = useMutation({
     mutationFn: async (projectId: string) => {
       const token = localStorage.getItem('access_token')
-      const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+      const baseUrl = (typeof window !== 'undefined' && !window.location.hostname.includes('localhost') ? window.location.origin : (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'))
       const resp = await fetch(`${baseUrl}/api/projects/${projectId}/deploy`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
@@ -72,7 +74,7 @@ export default function ProjectsPage() {
   const deleteProject = useMutation({
     mutationFn: async (projectId: string) => {
       const token = localStorage.getItem('access_token')
-      const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+      const baseUrl = (typeof window !== 'undefined' && !window.location.hostname.includes('localhost') ? window.location.origin : (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'))
       await fetch(`${baseUrl}/api/projects/${projectId}`, {
         method: 'DELETE',
         headers: { Authorization: `Bearer ${token}` },
@@ -207,7 +209,7 @@ export default function ProjectsPage() {
           })
         ) : (
           <div className="text-center py-16" style={{ color: 'var(--text-muted)' }}>
-            <span className="text-3xl block mb-3 opacity-30">⚡</span>
+            <span className="text-3xl block mb-3 opacity-30">âš¡</span>
             <p className="text-sm">No projects yet. Create one to start deploying.</p>
           </div>
         )}
@@ -215,3 +217,4 @@ export default function ProjectsPage() {
     </div>
   )
 }
+
