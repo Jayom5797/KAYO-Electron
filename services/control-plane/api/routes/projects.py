@@ -268,6 +268,10 @@ async def delete_project(
     project["status"] = DeploymentState.DELETING.value
     _save_project(project, db)
 
+    # Immediately also mark as deleted so pipeline thread stops
+    project["status"] = DeploymentState.DELETED.value
+    _save_project(project, db)
+
     if background_tasks:
         background_tasks.add_task(_delete_project_infrastructure, project_id)
 

@@ -32,8 +32,8 @@ export default function ProjectsPage() {
       const baseUrl = (typeof window !== 'undefined' && !window.location.hostname.includes('localhost') ? window.location.origin : (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'))
       const resp = await fetch(`${baseUrl}/api/projects/`, { headers: { Authorization: `Bearer ${token}` } })
       const data = resp.ok ? await resp.json() : []
-      // Filter out deleted projects
-      return data.filter((p: any) => p.status !== 'deleted')
+      // Filter out deleted and deleting projects
+      return data.filter((p: any) => p.status !== 'deleted' && p.status !== 'deleting')
     },
     refetchInterval: 3000,
   })
