@@ -210,7 +210,7 @@ export default function AssessmentsPage() {
             disabled={!scanTarget || submitScan.isPending}
             className="btn-primary disabled:opacity-50 whitespace-nowrap"
           >
-            {submitScan.isPending ? (activeScan ? 'ðŸ•· Scanning site...' : 'Scanning...') : 'Run Assessment'}
+            {submitScan.isPending ? (activeScan ? 'Scanning site...' : 'Scanning...') : 'Run Assessment'}
           </button>
           {/* Active scan toggle â€” enables intrusive vuln probing (SQLi, XSS, etc.) */}
           <label
@@ -251,7 +251,7 @@ export default function AssessmentsPage() {
             className="whitespace-nowrap disabled:opacity-50 px-4 py-2 text-sm font-semibold rounded-lg transition-all"
             style={{ background: 'linear-gradient(135deg, #ff9600, #e68600)', color: 'white', boxShadow: '0 4px 12px rgba(255,150,0,0.3)' }}
           >
-            {deepScanning ? 'ðŸ” Deep Scanning...' : 'ðŸ” Deep Scan'}
+            {deepScanning ? ' Deep Scanning...' : ' Deep Scan'}
           </button>
           <button
             onClick={runRecon}
@@ -259,7 +259,7 @@ export default function AssessmentsPage() {
             className="whitespace-nowrap disabled:opacity-50 px-4 py-2 text-sm font-semibold rounded-lg transition-all"
             style={{ background: 'linear-gradient(135deg, #c084fc, #9333ea)', color: 'white', boxShadow: '0 4px 12px rgba(147,51,234,0.3)' }}
           >
-            {reconning ? 'ðŸ•µï¸ Recon...' : 'ðŸ•µï¸ Recon'}
+            {reconning ? 'ï¸ Recon...' : 'ï¸ Recon'}
           </button>
         </div>
       </div>
@@ -277,9 +277,9 @@ export default function AssessmentsPage() {
         <div className="glass-card overflow-hidden animate-slide-up" style={{ border: '1px solid rgba(255,150,0,0.2)' }}>
           <div className="px-6 py-4 flex items-center justify-between" style={{ borderBottom: '1px solid var(--border)' }}>
             <div>
-              <h2 className="text-sm font-semibold text-white">ðŸ” Deep Scan Results</h2>
+              <h2 className="text-sm font-semibold text-white"> Deep Scan Results</h2>
               <p className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>
-                Crawled {deepScanResult.pages_crawled} pages â€¢ {deepScanResult.total_findings} secrets/leaks found
+                Crawled {deepScanResult.pages_crawled} pages x {deepScanResult.total_findings} secrets/leaks found
               </p>
             </div>
             <div className="flex items-center gap-2">
@@ -372,7 +372,7 @@ export default function AssessmentsPage() {
           {/* Git Repository Discovery */}
           {deepScanResult.git_repo && (
             <div className="px-6 py-4" style={{ borderTop: '1px solid var(--border)' }}>
-              <p className="text-xs font-semibold uppercase mb-2" style={{ color: '#64b4ff' }}>ðŸ”— Git Repository Discovered</p>
+              <p className="text-xs font-semibold uppercase mb-2" style={{ color: '#64b4ff' }}> Git Repository Discovered</p>
               <a href={deepScanResult.git_repo} target="_blank" rel="noopener noreferrer"
                 className="text-sm font-mono inline-flex items-center gap-2 px-3 py-2 rounded-lg transition-all hover:opacity-80"
                 style={{ background: 'rgba(100,180,255,0.08)', color: '#64b4ff', border: '1px solid rgba(100,180,255,0.2)' }}>
@@ -407,7 +407,7 @@ export default function AssessmentsPage() {
         <div className="glass-card overflow-hidden animate-slide-up" style={{ border: '1px solid rgba(147,51,234,0.2)' }}>
           <div className="px-6 py-4 flex items-center justify-between" style={{ borderBottom: '1px solid var(--border)' }}>
             <div>
-              <h2 className="text-sm font-semibold text-white">ðŸ•µï¸ Recon Results</h2>
+              <h2 className="text-sm font-semibold text-white">ï¸ Recon Results</h2>
               <p className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>{reconResult.url}</p>
             </div>
             <button onClick={() => setReconResult(null)} className="text-xs px-2 py-1" style={{ color: 'var(--text-muted)' }}>âœ•</button>
@@ -441,7 +441,7 @@ export default function AssessmentsPage() {
           {/* Git repo if found */}
           {reconResult.git_repo && (
             <div className="px-6 py-4" style={{ borderBottom: '1px solid var(--border)', background: 'rgba(0,255,136,0.02)' }}>
-              <p className="text-xs font-semibold uppercase mb-2" style={{ color: '#00ff88' }}>ðŸ”— Repository Discovered ({reconResult.git_repo_confidence} confidence)</p>
+              <p className="text-xs font-semibold uppercase mb-2" style={{ color: '#00ff88' }}> Repository Discovered ({reconResult.git_repo_confidence} confidence)</p>
               <a href={reconResult.git_repo} target="_blank" rel="noopener noreferrer"
                 className="text-sm font-mono inline-flex items-center gap-2 px-3 py-2 rounded-lg hover:opacity-80"
                 style={{ background: 'rgba(0,255,136,0.08)', color: '#00ff88', border: '1px solid rgba(0,255,136,0.2)' }}>
@@ -513,7 +513,7 @@ export default function AssessmentsPage() {
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-medium text-white truncate">{scan.target}</p>
                       <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
-                        {scan.type} scan â€¢ {formatRelativeTime(scan.created_at)}
+                        {scan.type} scan x {formatRelativeTime(scan.created_at)}
                       </p>
                     </div>
                     {scan.posture_rating && (
@@ -550,7 +550,7 @@ export default function AssessmentsPage() {
               </div>
             ) : (
               <div className="p-12 text-center" style={{ color: 'var(--text-muted)' }}>
-                <span className="text-3xl block mb-3 opacity-30">ðŸ”</span>
+                <span className="text-3xl block mb-3 opacity-30"></span>
                 <p className="text-sm">No assessments yet. Run your first scan above.</p>
               </div>
             )}
@@ -599,12 +599,12 @@ export default function AssessmentsPage() {
               <div className="px-6 py-2 flex gap-4 text-xs" style={{ borderBottom: '1px solid var(--border)', background: 'rgba(255,255,255,0.01)' }}>
                 {selectedScan.pages_scanned > 0 && (
                   <span style={{ color: 'var(--text-muted)' }}>
-                    ðŸ•· <span className="text-white font-medium">{selectedScan.pages_scanned}</span> pages crawled
+                     <span className="text-white font-medium">{selectedScan.pages_scanned}</span> pages crawled
                   </span>
                 )}
                 {selectedScan.forms_discovered > 0 && (
                   <span style={{ color: 'var(--text-muted)' }}>
-                    ðŸ“‹ <span className="text-white font-medium">{selectedScan.forms_discovered}</span> forms tested
+                     <span className="text-white font-medium">{selectedScan.forms_discovered}</span> forms tested
                   </span>
                 )}
               </div>
@@ -643,7 +643,7 @@ export default function AssessmentsPage() {
                             )}
                             {f.remediation && (
                               <p className="text-xs mt-2 px-2 py-1.5 rounded" style={{ background: 'rgba(0,255,136,0.05)', color: '#00ff88', border: '1px solid rgba(0,255,136,0.15)' }}>
-                                ðŸ’¡ {f.remediation}
+                                 {f.remediation}
                               </p>
                             )}
                           </div>
@@ -671,7 +671,7 @@ export default function AssessmentsPage() {
       {deepScanHistory.length > 0 && !deepScanResult && (
         <div className="glass-card overflow-hidden animate-fade-in">
           <div className="px-6 py-4 flex items-center justify-between" style={{ borderBottom: '1px solid var(--border)' }}>
-            <h2 className="text-sm font-semibold text-white">ðŸ” Deep Scan History</h2>
+            <h2 className="text-sm font-semibold text-white"> Deep Scan History</h2>
             <button onClick={() => { setDeepScanHistory([]); localStorage.removeItem('kayo_deepscan_history') }}
               className="text-xs" style={{ color: 'var(--text-muted)' }}>Clear</button>
           </div>
@@ -683,17 +683,17 @@ export default function AssessmentsPage() {
                 onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(255,255,255,0.02)')}
                 onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
               >
-                <span className="text-sm">ðŸ”</span>
+                <span className="text-sm"></span>
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium text-white truncate">{scan.url}</p>
                   <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
-                    {scan.pages_crawled} pages â€¢ {formatRelativeTime(scan.scanned_at)}
+                    {scan.pages_crawled} pages x {formatRelativeTime(scan.scanned_at)}
                   </p>
                 </div>
                 <span className="text-xs px-2 py-1 rounded" style={{ background: 'rgba(255,255,255,0.05)', color: 'var(--text-secondary)' }}>
                   {scan.total_findings} findings
                 </span>
-                {scan.git_repo && <span className="text-xs" style={{ color: '#64b4ff' }}>ðŸ”— repo</span>}
+                {scan.git_repo && <span className="text-xs" style={{ color: '#64b4ff' }}> repo</span>}
               </div>
             ))}
           </div>
