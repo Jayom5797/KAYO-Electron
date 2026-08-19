@@ -28,7 +28,20 @@ phases:
       - ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
       - ECR_URI=$ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$ECR_REPO_NAME
       - IMAGE_TAG=$PROJECT_ID
-      - if [ ! -f Dockerfile ] && [ -f package.json ]; then HAS_START=$(node -e "const p=require('./package.json'); console.log(p.scripts&&p.scripts.start?'yes':'no')" 2>/dev/null || echo "no"); if [ "$HAS_START" = "yes" ]; then printf 'FROM node:18-alpine\nWORKDIR /app\nCOPY package*.json ./\nRUN npm install\nCOPY . .\nRUN npm run build 2>/dev/null || true\nEXPOSE 3000\nCMD ["npm","start"]\n' > Dockerfile; else printf 'FROM node:18-alpine\nWORKDIR /app\nCOPY package*.json ./\nRUN npm install\nCOPY . .\nRUN npm run build 2>/dev/null || true\nEXPOSE 3000\nCMD ["npx","serve","-s","build","-l","3000"]\n' > Dockerfile; fi; fi
+      - |
+        if [ ! -f Dockerfile ] && [ -f package.json ]; then
+          HAS_START=$(node -e "const p=require('./package.json'); console.log(p.scripts&&p.scripts.start?'yes':'no')" 2>/dev/null || echo "no")
+          HAS_BUILD=$(node -e "const p=require('./package.json'); console.log(p.scripts&&p.scripts.build?'yes':'no')" 2>/dev/null || echo "no")
+          if [ "$HAS_START" = "yes" ]; then
+            printf 'FROM node:18-alpine\nWORKDIR /app\nCOPY package*.json ./\nRUN npm install\nCOPY . .\nEXPOSE 3000\nCMD ["npm","start"]\n' > Dockerfile
+          elif [ "$HAS_BUILD" = "yes" ]; then
+            printf 'FROM node:18-alpine AS builder\nWORKDIR /app\nCOPY package*.json ./\nRUN npm install\nCOPY . .\nRUN npm run build\nFROM nginx:alpine\nCOPY --from=builder /app/build /usr/share/nginx/html\nCOPY --from=builder /app/dist /usr/share/nginx/html 2>/dev/null || true\nEXPOSE 80\nCMD ["nginx","-g","daemon off;"]\n' > Dockerfile
+            PORT_NUM=80
+          else
+            printf 'FROM nginx:alpine\nCOPY . /usr/share/nginx/html\nEXPOSE 80\nCMD ["nginx","-g","daemon off;"]\n' > Dockerfile
+            PORT_NUM=80
+          fi
+        fi
       - if [ ! -f Dockerfile ] && [ -f requirements.txt ]; then MAIN=$(ls app.py main.py server.py run.py 2>/dev/null | head -1); printf "FROM python:3.11-slim\nWORKDIR /app\nCOPY requirements.txt .\nRUN pip install -r requirements.txt\nCOPY . .\nEXPOSE 8000\nCMD [\"python\",\"$MAIN\"]\n" > Dockerfile; fi
       - if [ ! -f Dockerfile ]; then printf 'FROM nginx:alpine\nCOPY . /usr/share/nginx/html\nEXPOSE 80\nCMD ["nginx","-g","daemon off;"]\n' > Dockerfile; PORT_NUM=80; fi
       - docker build -t $ECR_URI:$IMAGE_TAG .
