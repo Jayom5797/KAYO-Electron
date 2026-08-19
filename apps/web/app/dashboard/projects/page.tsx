@@ -159,6 +159,11 @@ export default function ProjectsPage() {
                         {p.name}
                       </Link>
                       <p className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>{p.source_url}</p>
+                      {p.status === 'active' && (
+                        <p className="text-xs mt-0.5" style={{ color: '#00ff88' }}>
+                          {p.endpoint || `http://kayo-proj-${p.project_id}.s3-website-us-east-1.amazonaws.com`}
+                        </p>
+                      )}
                     </div>
                   </div>
                   <div className="flex items-center gap-3">
@@ -184,12 +189,17 @@ export default function ProjectsPage() {
                         Deploy
                       </button>
                     )}
-                    {p.endpoint && (
-                      <a href={p.endpoint} target="_blank" rel="noopener noreferrer"
-                        className="text-xs hover:underline" style={{ color: '#64b4ff' }}>
-                        {p.endpoint}
-                      </a>
-                    )}
+                    {(p.endpoint || (p.status === 'active' && p.project_id)) && (() => {
+                      const url = p.endpoint || `http://kayo-proj-${p.project_id}.s3-website-us-east-1.amazonaws.com`
+                      return (
+                        <a href={url} target="_blank" rel="noopener noreferrer"
+                          className="text-xs px-2 py-1 rounded font-medium hover:underline" style={{
+                            color: '#00ff88', background: 'rgba(0,255,136,0.1)', border: '1px solid rgba(0,255,136,0.2)'
+                          }}>
+                          View Site
+                        </a>
+                      )
+                    })()}
                     {p.status !== 'deleting' && p.status !== 'deleted' && (
                       <button onClick={() => { if (confirm('Delete this project? This destroys its AWS infrastructure.')) deleteProject.mutate(p.project_id) }}
                         className="text-xs px-2 py-1 rounded transition-colors" style={{ color: '#ff6b6b' }}>
