@@ -251,6 +251,42 @@ async def restart_project(
     return ProjectResponse(**project)
 
 
+# ── POST /api/projects/{project_id}/callback ───────────────────────────────────
+# Internal endpoint called by CodeBuild to report deployment result
+
+class DeployCallbackRequest(BaseModel):
+    status: str
+    app_url: Optional[str] = None
+    error: Optional[str] = None
+
+CALLBACK_SECRET = "kayo-internal-callback-2026"
+
+@router.post("/{project_id}/callback", status_code=status.HTTP_200_OK)
+async def deployment_callback(
+    project_id: str,
+    data: DeployCallbackRequest,
+    db: Session = Depends(get_db),
+):
+    """Internal callback from CodeBuild to update deployment status and URL."""
+    project = db.query(Project).filter(Project.project_id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    if data.status == "active":
+        project.status = DeploymentState.ACTIVE.value
+        if data.app_url:
+            project.endpoint = data.app_url
+        project.deployed_at = datetime.utcnow()
+        project.error = None
+    elif data.status == "failed":
+        project.status = DeploymentState.FAILED.value
+        project.error = data.error or "Deployment failed"
+
+    db.commit()
+    logger.info(f"[{project_id}] Callback received: status={data.status} url={data.app_url}")
+    return {"ok": True}
+
+
 # ── DELETE /api/projects/{project_id} ──────────────────────────────────────────
 
 @router.delete("/{project_id}", status_code=status.HTTP_202_ACCEPTED)
@@ -397,6 +433,8 @@ async def _run_deployment_pipeline(project_id: str, tenant_id: str):
                 {"name": "PORT",          "value": port,                     "type": "PLAINTEXT"},
                 {"name": "AWS_ACCOUNT_ID","value": _settings.aws_account_id, "type": "PLAINTEXT"},
                 {"name": "AWS_DEFAULT_REGION", "value": _settings.aws_region,"type": "PLAINTEXT"},
+                {"name": "CALLBACK_URL",  "value": f"http://kayo-alb-44749188.us-east-1.elb.amazonaws.com/api/projects/{project_id}/callback", "type": "PLAINTEXT"},
+                {"name": "CALLBACK_TOKEN","value": "kayo-internal-callback-2026", "type": "PLAINTEXT"},
             ],
         )
         build_id = build["build"]["id"]
