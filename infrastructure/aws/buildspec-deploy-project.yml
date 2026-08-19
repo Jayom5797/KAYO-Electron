@@ -42,7 +42,8 @@ phases:
       - TEMPLATE_URL=https://s3.amazonaws.com/kayo-artifacts-700640308663/cloudformation/project-stack-template.yaml
       - |
         aws cloudformation describe-stacks --stack-name $STACK_NAME --region $AWS_DEFAULT_REGION 2>/dev/null && STACK_EXISTS=true || STACK_EXISTS=false
-        PARAMS="ParameterKey=ProjectId,ParameterValue=$PROJECT_ID ParameterKey=ProjectName,ParameterValue=$PROJECT_NAME ParameterKey=ImageUri,ParameterValue=$IMAGE_URI ParameterKey=ContainerPort,ParameterValue=$PORT_NUM"
+        SAFE_NAME=$(echo "$PROJECT_NAME" | tr ' ' '-' | tr -cd 'a-zA-Z0-9-')
+        PARAMS="ParameterKey=ProjectId,ParameterValue=$PROJECT_ID ParameterKey=ProjectName,ParameterValue=$SAFE_NAME ParameterKey=ImageUri,ParameterValue=$IMAGE_URI ParameterKey=ContainerPort,ParameterValue=$PORT_NUM"
         if [ "$STACK_EXISTS" = "true" ]; then
           aws cloudformation update-stack --stack-name $STACK_NAME --template-url $TEMPLATE_URL --capabilities CAPABILITY_NAMED_IAM --parameters $PARAMS --region $AWS_DEFAULT_REGION 2>&1 || echo "No update needed"
         else
