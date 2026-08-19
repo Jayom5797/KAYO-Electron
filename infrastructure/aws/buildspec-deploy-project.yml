@@ -40,10 +40,17 @@ phases:
       - STACK_NAME=kayo-project-$PROJECT_ID
       - PORT_NUM=${PORT:-3000}
       - TEMPLATE_URL=https://s3.amazonaws.com/kayo-artifacts-700640308663/cloudformation/project-stack-template.yaml
-      - aws cloudformation describe-stacks --stack-name $STACK_NAME --region $AWS_DEFAULT_REGION 2>/dev/null && STACK_EXISTS=true || STACK_EXISTS=false
-      - if [ "$STACK_EXISTS" = "true" ]; then aws cloudformation update-stack --stack-name $STACK_NAME --template-url $TEMPLATE_URL --capabilities CAPABILITY_NAMED_IAM --parameters ParameterKey=ProjectId,ParameterValue=$PROJECT_ID ParameterKey=ProjectName,ParameterValue="$PROJECT_NAME" ParameterKey=ImageUri,ParameterValue=$IMAGE_URI ParameterKey=ContainerPort,ParameterValue=$PORT_NUM --region $AWS_DEFAULT_REGION 2>&1 || echo "No update needed"; fi
-      - if [ "$STACK_EXISTS" = "false" ]; then aws cloudformation create-stack --stack-name $STACK_NAME --template-url $TEMPLATE_URL --capabilities CAPABILITY_NAMED_IAM --parameters ParameterKey=ProjectId,ParameterValue=$PROJECT_ID ParameterKey=ProjectName,ParameterValue="$PROJECT_NAME" ParameterKey=ImageUri,ParameterValue=$IMAGE_URI ParameterKey=ContainerPort,ParameterValue=$PORT_NUM --region $AWS_DEFAULT_REGION; fi
-      - aws cloudformation wait stack-create-complete --stack-name $STACK_NAME --region $AWS_DEFAULT_REGION 2>/dev/null || aws cloudformation wait stack-update-complete --stack-name $STACK_NAME --region $AWS_DEFAULT_REGION 2>/dev/null || true
-      - APP_URL=$(aws cloudformation describe-stacks --stack-name $STACK_NAME --region $AWS_DEFAULT_REGION --query "Stacks[0].Outputs[?OutputKey=='AppURL'].OutputValue" --output text 2>/dev/null || echo "")
-      - echo "Deployed to $APP_URL"
-      - if [ -n "$APP_URL" ] && [ -n "$CALLBACK_URL" ]; then curl -s -X POST "$CALLBACK_URL" -H "Content-Type: application/json" -H "Authorization: Bearer $CALLBACK_TOKEN" -d "{\"project_id\":\"$PROJECT_ID\",\"status\":\"active\",\"app_url\":\"$APP_URL\"}" || true; fi
+      - |
+        aws cloudformation describe-stacks --stack-name $STACK_NAME --region $AWS_DEFAULT_REGION 2>/dev/null && STACK_EXISTS=true || STACK_EXISTS=false
+        PARAMS="ParameterKey=ProjectId,ParameterValue=$PROJECT_ID ParameterKey=ProjectName,ParameterValue=$PROJECT_NAME ParameterKey=ImageUri,ParameterValue=$IMAGE_URI ParameterKey=ContainerPort,ParameterValue=$PORT_NUM"
+        if [ "$STACK_EXISTS" = "true" ]; then
+          aws cloudformation update-stack --stack-name $STACK_NAME --template-url $TEMPLATE_URL --capabilities CAPABILITY_NAMED_IAM --parameters $PARAMS --region $AWS_DEFAULT_REGION 2>&1 || echo "No update needed"
+        else
+          aws cloudformation create-stack --stack-name $STACK_NAME --template-url $TEMPLATE_URL --capabilities CAPABILITY_NAMED_IAM --parameters $PARAMS --region $AWS_DEFAULT_REGION
+        fi
+        aws cloudformation wait stack-create-complete --stack-name $STACK_NAME --region $AWS_DEFAULT_REGION 2>/dev/null || aws cloudformation wait stack-update-complete --stack-name $STACK_NAME --region $AWS_DEFAULT_REGION 2>/dev/null || true
+        APP_URL=$(aws cloudformation describe-stacks --stack-name $STACK_NAME --region $AWS_DEFAULT_REGION --query 'Stacks[0].Outputs[?OutputKey==`AppURL`].OutputValue' --output text 2>/dev/null || echo "")
+        echo "Deployed to $APP_URL"
+        if [ -n "$APP_URL" ] && [ -n "$CALLBACK_URL" ]; then
+          curl -s -X POST "$CALLBACK_URL" -H "Content-Type: application/json" -H "Authorization: Bearer $CALLBACK_TOKEN" -d "{\"project_id\":\"$PROJECT_ID\",\"status\":\"active\",\"app_url\":\"$APP_URL\"}" || true
+        fi
