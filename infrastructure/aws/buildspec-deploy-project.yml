@@ -57,37 +57,41 @@ phases:
       - SVC_NAME=kayo-proj-$PROJECT_ID
       - aws logs create-log-group --log-group-name $LOG_GROUP --region $AWS_DEFAULT_REGION 2>/dev/null || true
       - ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-      - EXEC_ROLE=arn:aws:iam::$ACCOUNT_ID:role/kayo-ecs-execution-role
-      - CONTAINER_DEF="[{\"name\":\"app\",\"image\":\"$IMAGE_URI\",\"portMappings\":[{\"containerPort\":$PORT_NUM,\"protocol\":\"tcp\"}],\"essential\":true,\"logConfiguration\":{\"logDriver\":\"awslogs\",\"options\":{\"awslogs-group\":\"$LOG_GROUP\",\"awslogs-region\":\"$AWS_DEFAULT_REGION\",\"awslogs-stream-prefix\":\"ecs\"}}}]"
-      - aws ecs register-task-definition --family $FAMILY --network-mode awsvpc --requires-compatibilities FARGATE --cpu 256 --memory 512 --execution-role-arn $EXEC_ROLE --container-definitions "$CONTAINER_DEF" --region $AWS_DEFAULT_REGION > /tmp/taskdef.json
-      - cat /tmp/taskdef.json | python3 -c "import sys,json; print(json.load(sys.stdin)['taskDefinition']['taskDefinitionArn'])" > /tmp/task_arn.txt
-      - TASK_DEF=$(cat /tmp/task_arn.txt)
-      - echo "Task def registered: $TASK_DEF"
+      - EXEC_ROLE=arn:aws:iam::${ACCOUNT_ID}:role/kayo-ecs-execution-role
       - |
-        if aws ecs describe-services --cluster $ECS_CLUSTER --services $SVC_NAME --region $AWS_DEFAULT_REGION --query "services[?status=='ACTIVE'].serviceName" --output text 2>/dev/null | grep -q $SVC_NAME; then
-          echo "Updating existing service..."
+        python3 -c "
+import json, os
+defn = [{
+  'name': 'app',
+  'image': os.environ['IMAGE_URI'],
+  'portMappings': [{'containerPort': int(os.environ.get('PORT_NUM','3000')), 'protocol': 'tcp'}],
+  'essential': True,
+  'logConfiguration': {
+    'logDriver': 'awslogs',
+    'options': {
+      'awslogs-group': os.environ['LOG_GROUP'],
+      'awslogs-region': os.environ['AWS_DEFAULT_REGION'],
+      'awslogs-stream-prefix': 'ecs'
+    }
+  }
+}]
+print(json.dumps(defn))
+" > /tmp/container_def.json
+      - aws ecs register-task-definition --family $FAMILY --network-mode awsvpc --requires-compatibilities FARGATE --cpu 256 --memory 512 --execution-role-arn $EXEC_ROLE --container-definitions file:///tmp/container_def.json --region $AWS_DEFAULT_REGION > /tmp/taskdef.json
+      - TASK_DEF=$(python3 -c "import json; print(json.load(open('/tmp/taskdef.json'))['taskDefinition']['taskDefinitionArn'])")
+      - echo "Task def registered $TASK_DEF"
+      - SVC_EXISTS=$(aws ecs describe-services --cluster $ECS_CLUSTER --services $SVC_NAME --region $AWS_DEFAULT_REGION --query "services[?status=='ACTIVE'].serviceName" --output text 2>/dev/null || echo "")
+      - |
+        if echo "$SVC_EXISTS" | grep -q "$SVC_NAME"; then
+          echo "Updating service..."
           aws ecs update-service --cluster $ECS_CLUSTER --service $SVC_NAME --task-definition $TASK_DEF --force-new-deployment --region $AWS_DEFAULT_REGION
         else
-          echo "Creating new service..."
-          aws ecs create-service \
-            --cluster $ECS_CLUSTER \
-            --service-name $SVC_NAME \
-            --task-definition $TASK_DEF \
-            --desired-count 1 \
-            --launch-type FARGATE \
-            --network-configuration "awsvpcConfiguration={subnets=[$SUBNET_1,$SUBNET_2],securityGroups=[$SECURITY_GROUP],assignPublicIp=ENABLED}" \
-            --region $AWS_DEFAULT_REGION
+          echo "Creating service..."
+          aws ecs create-service --cluster $ECS_CLUSTER --service-name $SVC_NAME --task-definition $TASK_DEF --desired-count 1 --launch-type FARGATE --network-configuration "awsvpcConfiguration={subnets=[$SUBNET_1,$SUBNET_2],securityGroups=[$SECURITY_GROUP],assignPublicIp=ENABLED}" --region $AWS_DEFAULT_REGION
         fi
-      - echo "Waiting for service to stabilize..."
       - aws ecs wait services-stable --cluster $ECS_CLUSTER --services $SVC_NAME --region $AWS_DEFAULT_REGION
       - TASK_ARN=$(aws ecs list-tasks --cluster $ECS_CLUSTER --service-name $SVC_NAME --region $AWS_DEFAULT_REGION --query "taskArns[0]" --output text)
       - ENI=$(aws ecs describe-tasks --cluster $ECS_CLUSTER --tasks $TASK_ARN --region $AWS_DEFAULT_REGION --query "tasks[0].attachments[0].details[?name=='networkInterfaceId'].value" --output text)
       - PUBLIC_IP=$(aws ec2 describe-network-interfaces --network-interface-ids $ENI --region $AWS_DEFAULT_REGION --query "NetworkInterfaces[0].Association.PublicIp" --output text)
-      - APP_URL=http://$PUBLIC_IP:$PORT_NUM
-      - echo "APP_URL=$APP_URL"
-      - |
-        if [ -n "$CALLBACK_URL" ] && [ -n "$PUBLIC_IP" ]; then
-          curl -s -X POST "$CALLBACK_URL" \
-            -H "Content-Type: application/json" \
-            -d "{\"status\":\"active\",\"app_url\":\"$APP_URL\"}" || true
-        fi
+      - echo "APP_URL=http://$PUBLIC_IP:$PORT_NUM"
+      - if [ -n "$CALLBACK_URL" ] && [ -n "$PUBLIC_IP" ]; then curl -s -X POST "$CALLBACK_URL" -H "Content-Type:application/json" -d "{\"status\":\"active\",\"app_url\":\"http://$PUBLIC_IP:$PORT_NUM\"}" || true; fi
