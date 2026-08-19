@@ -7,14 +7,14 @@ function ThreatIcon({ icon, label, highlight }: { icon: string; label: string; h
   return (
     <div className="flex flex-col items-center gap-2.5">
       <div className={`w-[72px] h-[72px] md:w-[88px] md:h-[88px] rounded-full flex items-center justify-center`} style={{
-        background: highlight ? 'rgba(124,92,252,0.15)' : 'rgba(8,8,14,0.75)',
+        background: highlight ? 'rgba(124,92,252,0.2)' : 'linear-gradient(135deg, rgba(60,40,150,0.3), rgba(30,80,180,0.2))',
         backdropFilter: 'blur(12px)',
-        border: highlight ? '1px solid rgba(124,92,252,0.35)' : '1px solid rgba(255,255,255,0.08)',
-        boxShadow: highlight ? '0 0 30px rgba(124,92,252,0.2)' : 'none',
+        border: highlight ? '1px solid rgba(124,92,252,0.4)' : '1px solid rgba(100,130,255,0.15)',
+        boxShadow: highlight ? '0 0 30px rgba(124,92,252,0.25)' : '0 0 15px rgba(80,100,200,0.1)',
       }}>
-        <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke={highlight ? '#a78bfa' : '#7a7a8a'} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d={icon} /></svg>
+        <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke={highlight ? '#a78bfa' : '#7a9aff'} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d={icon} /></svg>
       </div>
-      <span className="text-xs md:text-sm font-medium" style={{ color: highlight ? '#a78bfa' : '#6a6a7a' }}>{label}</span>
+      <span className="text-xs md:text-sm font-medium" style={{ color: highlight ? '#a78bfa' : '#7a8aaa' }}>{label}</span>
     </div>
   )
 }
@@ -222,38 +222,34 @@ export default function LandingPage() {
       <section className="w-full px-5 md:px-16 py-20 md:py-28 relative overflow-hidden" style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }}>
         <div className="absolute inset-0 pointer-events-none" style={{ background: 'radial-gradient(ellipse at 50% 50%, rgba(124,92,252,0.06) 0%, transparent 60%)' }} />
 
-        <div className="relative z-10 max-w-6xl mx-auto">
-          {/* Scattered icons around heading using grid with offset positions */}
-          <div className="relative min-h-[500px] md:min-h-[550px]">
+        <div className="relative z-10 max-w-5xl mx-auto">
+          {/* Top row */}
+          <div className="grid grid-cols-5 gap-4 md:gap-6 mb-8">
+            <ThreatIcon icon="M12 9v2m0 4h.01M5.07 19H18.93a2 2 0 001.72-2.98L13.72 4a2 2 0 00-3.44 0L3.34 16.02A2 2 0 005.07 19z" label="SQL Injection" />
+            <ThreatIcon icon="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" label="XSS Attacks" />
+            <ThreatIcon icon="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" label="Adware" />
+            <ThreatIcon icon="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" label="Spyware" />
+            <ThreatIcon icon="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" label="Trojans" />
+          </div>
 
-            {/* Center heading */}
-            <div className="absolute inset-0 flex items-center justify-center z-10 pointer-events-none">
-              <div className="text-center px-4">
-                <h2 className="font-heading font-extrabold text-3xl sm:text-4xl md:text-5xl lg:text-6xl uppercase tracking-tight text-white leading-[1.1] mb-4">
-                  Advanced Detection<br />
-                  <span className="bg-clip-text text-transparent" style={{ backgroundImage: 'linear-gradient(135deg, #a78bfa, #64b4ff)' }}>& Threat Removal</span>
-                </h2>
-                <p className="text-sm md:text-base max-w-lg mx-auto leading-relaxed" style={{ color: '#5a5a6a' }}>
-                  KAYO specializes in identifying unique and hard-to-find threats across your infrastructure before removing any malicious activity from your systems.
-                </p>
-              </div>
-            </div>
+          {/* Center heading */}
+          <div className="text-center py-10 md:py-14">
+            <h2 className="font-heading font-extrabold text-3xl sm:text-4xl md:text-5xl lg:text-6xl uppercase tracking-tight text-white leading-[1.1] mb-4">
+              Advanced Detection<br />
+              <span className="bg-clip-text text-transparent" style={{ backgroundImage: 'linear-gradient(135deg, #a78bfa, #64b4ff)' }}>& Threat Removal</span>
+            </h2>
+            <p className="text-sm md:text-base max-w-lg mx-auto leading-relaxed" style={{ color: '#5a5a6a' }}>
+              KAYO specializes in identifying unique and hard-to-find threats across your infrastructure before removing any malicious activity from your systems.
+            </p>
+          </div>
 
-            {/* Icons scattered at specific grid positions to look random */}
-            <div className="absolute top-[5%] left-[5%]"><ThreatIcon icon="M12 9v2m0 4h.01M5.07 19H18.93a2 2 0 001.72-2.98L13.72 4a2 2 0 00-3.44 0L3.34 16.02A2 2 0 005.07 19z" label="SQL Injection" /></div>
-            <div className="absolute top-[2%] left-[30%]"><ThreatIcon icon="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" label="XSS Attacks" /></div>
-            <div className="absolute top-[8%] left-[52%]"><ThreatIcon icon="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" label="Adware" /></div>
-            <div className="absolute top-[12%] right-[22%]"><ThreatIcon icon="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" label="Spyware" /></div>
-            <div className="absolute top-[3%] right-[4%]"><ThreatIcon icon="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" label="Trojans" /></div>
-
-            <div className="absolute top-[40%] left-[2%]"><ThreatIcon icon="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M3 3l18 18" label="Malware" /></div>
-            <div className="absolute top-[38%] right-[3%]"><ThreatIcon icon="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" label="Worms" /></div>
-
-            <div className="absolute bottom-[18%] left-[8%]"><ThreatIcon icon="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 2v2m8-2v2m-4-2v2M3 20h18M5 20V9h14v11" label="PUPs" /></div>
-            <div className="absolute bottom-[12%] left-[28%]"><ThreatIcon icon="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z M22 6l-10 7L2 6" label="Phishing" /></div>
-            <div className="absolute bottom-[5%] left-[45%]"><ThreatIcon icon="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" label="Hijackers" highlight /></div>
-            <div className="absolute bottom-[15%] right-[25%]"><ThreatIcon icon="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" label="Ransomware" /></div>
-            <div className="absolute bottom-[8%] right-[5%]"><ThreatIcon icon="M12 2L2 7l10 5 10-5-10-5z M2 17l10 5 10-5 M2 12l10 5 10-5" label="Rootkits" /></div>
+          {/* Bottom row */}
+          <div className="grid grid-cols-5 gap-4 md:gap-6 mt-8">
+            <ThreatIcon icon="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M3 3l18 18" label="Malware" />
+            <ThreatIcon icon="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 2v2m8-2v2m-4-2v2M3 20h18M5 20V9h14v11" label="PUPs" />
+            <ThreatIcon icon="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" label="Hijackers" highlight />
+            <ThreatIcon icon="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" label="Ransomware" />
+            <ThreatIcon icon="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z M22 6l-10 7L2 6" label="Phishing" />
           </div>
         </div>
       </section>
